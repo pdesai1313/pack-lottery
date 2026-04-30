@@ -7,18 +7,11 @@ const { verifyAccessToken } = require('../middleware/auth')
 const router = express.Router()
 const prisma = new PrismaClient()
 
-function issueTokens(res, user) {
+function issueTokens(user) {
   const payload = { id: user.id, email: user.email, role: user.role, name: user.name }
-
   const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRY || '15m' })
   const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRY || '7d' })
-
-  const isProduction = process.env.NODE_ENV === 'production'
-  // cross-domain (Vercel → Render) requires sameSite:'none' + secure:true
-  const cookieOpts = { httpOnly: true, sameSite: isProduction ? 'none' : 'lax', secure: isProduction }
-
-  res.cookie('accessToken', accessToken, { ...cookieOpts, maxAge: 15 * 60 * 1000 })
-  res.cookie('refreshToken', refreshToken, { ...cookieOpts, maxAge: 7 * 24 * 60 * 60 * 1000 })
+  return { accessToken, refreshToken }
 }
 
 router.post('/login', async (req, res) => {
@@ -31,12 +24,12 @@ router.post('/login', async (req, res) => {
   const valid = await bcrypt.compare(password, user.passwordHash)
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' })
 
-  issueTokens(res, user)
-  res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } })
+  const { accessToken, refreshToken } = issueTokens(user)
+  res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role }, accessToken, refreshToken })
 })
 
 router.post('/refresh', async (req, res) => {
-  const token = req.cookies?.refreshToken
+  const token = req.body?.refreshToken
   if (!token) return res.status(401).json({ error: 'No refresh token' })
 
   try {
@@ -44,16 +37,14 @@ router.post('/refresh', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id } })
     if (!user || !user.active) return res.status(401).json({ error: 'User not found' })
 
-    issueTokens(res, user)
-    res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } })
+    const { accessToken, refreshToken } = issueTokens(user)
+    res.json({ accessToken, refreshToken })
   } catch {
     return res.status(401).json({ error: 'Refresh token expired' })
   }
 })
 
 router.post('/logout', (req, res) => {
-  res.clearCookie('accessToken')
-  res.clearCookie('refreshToken')
   res.json({ ok: true })
 })
 

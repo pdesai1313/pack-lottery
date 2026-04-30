@@ -1,8 +1,23 @@
 import axios from 'axios'
 
-// VITE_API_BASE_URL is set to the Render backend URL in production.
-// In local dev it's empty and Vite's proxy handles /api → localhost:4000.
-const api = axios.create({ baseURL: (import.meta.env.VITE_API_BASE_URL || '') + '/api', withCredentials: true })
+const api = axios.create({ baseURL: '/api' })
+
+export function getAccessToken() { return localStorage.getItem('accessToken') }
+export function setTokens(access, refresh) {
+  localStorage.setItem('accessToken', access)
+  localStorage.setItem('refreshToken', refresh)
+}
+export function clearTokens() {
+  localStorage.removeItem('accessToken')
+  localStorage.removeItem('refreshToken')
+}
+
+// Attach token to every request
+api.interceptors.request.use((config) => {
+  const token = getAccessToken()
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
 
 let isRefreshing = false
 let failedQueue = []
@@ -27,11 +42,14 @@ api.interceptors.response.use(
       isRefreshing = true
 
       try {
-        await api.post('/auth/refresh')
+        const refreshToken = localStorage.getItem('refreshToken')
+        const { data } = await axios.post('/api/auth/refresh', { refreshToken })
+        setTokens(data.accessToken, data.refreshToken)
         processQueue(null)
         return api(original)
       } catch (refreshError) {
         processQueue(refreshError)
+        clearTokens()
         window.location.href = '/login'
         return Promise.reject(refreshError)
       } finally {

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { getMe, login as apiLogin, logout as apiLogout } from '../api/auth'
+import { setTokens, clearTokens, getAccessToken } from '../api/axios'
 
 const AuthContext = createContext(null)
 
@@ -7,19 +8,22 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined) // undefined = loading, null = unauthenticated
 
   useEffect(() => {
+    if (!getAccessToken()) { setUser(null); return }
     getMe()
       .then(setUser)
-      .catch(() => setUser(null))
+      .catch(() => { clearTokens(); setUser(null) })
   }, [])
 
   async function login(email, password) {
     const data = await apiLogin(email, password)
+    setTokens(data.accessToken, data.refreshToken)
     setUser(data.user)
     return data.user
   }
 
   async function logout() {
-    await apiLogout()
+    await apiLogout().catch(() => {})
+    clearTokens()
     setUser(null)
   }
 
