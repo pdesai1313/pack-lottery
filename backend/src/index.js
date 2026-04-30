@@ -24,6 +24,21 @@ app.use('/api/shifts', shiftRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/settings', settingsRoutes)
 
+// One-time seed endpoint — protected by SEED_SECRET env var, delete after use
+app.post('/api/seed', async (req, res) => {
+  const secret = process.env.SEED_SECRET
+  if (!secret || req.headers['x-seed-secret'] !== secret) {
+    return res.status(403).json({ error: 'Forbidden' })
+  }
+  try {
+    const { execSync } = require('child_process')
+    execSync('node prisma/seed.js', { stdio: 'pipe', cwd: process.cwd() })
+    res.json({ ok: true, message: 'Seeded successfully' })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.use((err, req, res, next) => {
   console.error(err)
   res.status(500).json({ error: 'Internal server error' })
