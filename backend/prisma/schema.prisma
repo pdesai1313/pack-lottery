@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Role: ADMIN | REVIEWER | OPERATOR
+// ShiftTag: MORNING | EVENING | FULL_DAY
+// ShiftStatus: OPEN | CLOSED
+// PackStateStatus: OPEN | CLOSED
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("OPERATOR")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  shifts Shift[] @relation("ShiftCreatedBy")
+
+  @@map("users")
+}
+
+model Pack {
+  id            Int     @id @default(autoincrement())
+  packId        String  @unique @map("pack_id")
+  packSize      Int     @map("pack_size")
+  ticketValue   Float   @map("ticket_value")
+  gameName      String? @map("game_name")
+  scannerNumber String  @map("scanner_number")
+  active        Boolean @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  scannerState ScannerState?
+  packStates   PackState[]
+  packSales    PackSale[]
+
+  @@map("packs")
+}
+
+model ScannerState {
+  packId              Int       @id @map("pack_id")
+  lastCommittedTicket Int       @default(0) @map("last_committed_ticket")
+  lastCommittedAt     DateTime? @map("last_committed_at")
+
+  pack Pack @relation(fields: [packId], references: [id])
+
+  @@map("scanner_states")
+}
+
+model Shift {
+  id              Int      @id @default(autoincrement())
+  date            String
+  shiftTag        String   @map("shift_tag")
+  isAuthoritative Boolean  @map("is_authoritative")
+  status          String   @default("OPEN")
+  createdById     Int      @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Reconciliation fields (draft, saved on each update)
+  onlineSale       Float?  @map("online_sale")
+  atm              Float?  @map("atm")
+  onlineCash       Float?  @map("online_cash")
+  instantCash      Float?  @map("instant_cash")
+  actualCashOnHand Float?  @map("actual_cash_on_hand")
+
+  createdBy  User        @relation("ShiftCreatedBy", fields: [createdById], references: [id])
+  packStates PackState[]
+  packSales  PackSale[]
+
+  @@unique([date, shiftTag])
+  @@map("shifts")
+}
+
+model PackState {
+  id             Int      @id @default(autoincrement())
+  packId         Int      @map("pack_id")
+  shiftId        Int      @map("shift_id")
+  startTicket    Int?     @map("start_ticket")
+  endTicket      Int?     @map("end_ticket")
+  computedUnits  Int?     @map("computed_units")
+  computedAmount Float?   @map("computed_amount")
+  rawBarcode     String?  @map("raw_barcode")
+  flags          String   @default("[]")
+  status         String   @default("OPEN")
+  overrideReason String?  @map("override_reason")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  pack  Pack  @relation(fields: [packId], references: [id])
+  shift Shift @relation(fields: [shiftId], references: [id])
+
+  @@unique([packId, shiftId])
+  @@map("pack_states")
+}
+
+model PackSale {
+  id             Int      @id @default(autoincrement())
+  packId         Int      @map("pack_id")
+  shiftId        Int      @map("shift_id")
+  startTicket    Int      @map("start_ticket")
+  endTicket      Int      @map("end_ticket")
+  unitsSold      Int      @map("units_sold")
+  amount         Float
+  flags          String   @default("[]")
+  overrideReason String?  @map("override_reason")
+  committedAt    DateTime @default(now()) @map("committed_at")
+
+  pack  Pack  @relation(fields: [packId], references: [id])
+  shift Shift @relation(fields: [shiftId], references: [id])
+
+  @@unique([packId, shiftId])
+  @@map("pack_sales")
+}
+
+model AppSettings {
+  id               Int      @id @default(1)
+  toleranceTickets Int      @default(2) @map("tolerance_tickets")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}

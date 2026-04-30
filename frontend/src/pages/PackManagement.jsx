@@ -1,0 +1,145 @@
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getPacks, createPack, updatePack } from '../api/packs'
+
+function PackForm({ initial, onSave, onCancel, loading, error }) {
+  const [form, setForm] = useState(initial || { packId: '', packSize: '', ticketValue: '', gameName: '', scannerNumber: '' })
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    onSave({ ...form, packSize: Number(form.packSize), ticketValue: Number(form.ticketValue) })
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label">Pack ID *</label>
+          <input className="input" value={form.packId} onChange={set('packId')} placeholder="PACK-001" required disabled={!!initial} />
+        </div>
+        <div>
+          <label className="label">Scanner # *</label>
+          <input className="input" value={form.scannerNumber} onChange={set('scannerNumber')} placeholder="SCN-01" required />
+        </div>
+        <div>
+          <label className="label">Pack Size *</label>
+          <input className="input" type="number" min="1" value={form.packSize} onChange={set('packSize')} placeholder="50" required />
+        </div>
+        <div>
+          <label className="label">Ticket Value ($) *</label>
+          <input className="input" type="number" min="0.01" step="0.01" value={form.ticketValue} onChange={set('ticketValue')} placeholder="2.00" required />
+        </div>
+        <div className="col-span-2">
+          <label className="label">Game Name</label>
+          <input className="input" value={form.gameName} onChange={set('gameName')} placeholder="Lucky7" />
+        </div>
+      </div>
+      {error && <p className="text-red-600 text-xs">{error}</p>}
+      <div className="flex gap-2">
+        <button type="submit" className="btn-primary btn-sm" disabled={loading}>
+          {loading ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" className="btn-secondary btn-sm" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  )
+}
+
+export default function PackManagement() {
+  const qc = useQueryClient()
+  const [modal, setModal] = useState(null) // null | 'create' | pack object
+  const [formError, setFormError] = useState('')
+
+  const { data: packs = [], isLoading } = useQuery({ queryKey: ['packs'], queryFn: getPacks })
+
+  const createMutation = useMutation({
+    mutationFn: createPack,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['packs'] }); setModal(null) },
+    onError: (e) => setFormError(e.response?.data?.error || 'Failed to create pack'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => updatePack(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['packs'] }); setModal(null) },
+    onError: (e) => setFormError(e.response?.data?.error || 'Failed to update pack'),
+  })
+
+  function openCreate() { setModal('create'); setFormError('') }
+  function openEdit(pack) { setModal(pack); setFormError('') }
+
+  async function toggleActive(pack) {
+    await updatePack(pack.id, { active: !pack.active })
+    qc.invalidateQueries({ queryKey: ['packs'] })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">Pack Management</h2>
+        <button className="btn-primary btn-sm" onClick={openCreate}>+ Add Pack</button>
+      </div>
+
+      {modal && (
+        <div className="card mb-4">
+          <h3 className="font-medium mb-3">{modal === 'create' ? 'New Pack' : `Edit ${modal.packId}`}</h3>
+          <PackForm
+            initial={modal === 'create' ? null : modal}
+            onSave={(data) =>
+              modal === 'create'
+                ? createMutation.mutate(data)
+                : updateMutation.mutate({ id: modal.id, data })
+            }
+            onCancel={() => setModal(null)}
+            loading={createMutation.isPending || updateMutation.isPending}
+            error={formError}
+          />
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-gray-400">Loading…</p>
+      ) : (
+        <div className="card overflow-x-auto p-0">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                {['Pack ID', 'Game', 'Scanner', 'Size', 'Value', 'Last Ticket', 'Status', ''].map((h) => (
+                  <th key={h} className="text-left px-4 py-2 text-xs font-medium text-gray-500">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {packs.map((p) => (
+                <tr key={p.id} className={!p.active ? 'opacity-50' : ''}>
+                  <td className="px-4 py-2 font-mono font-medium">{p.packId}</td>
+                  <td className="px-4 py-2">{p.gameName || '—'}</td>
+                  <td className="px-4 py-2 font-mono text-xs">{p.scannerNumber}</td>
+                  <td className="px-4 py-2">{p.packSize}</td>
+                  <td className="px-4 py-2">${p.ticketValue.toFixed(2)}</td>
+                  <td className="px-4 py-2 font-mono">{p.scannerState?.lastCommittedTicket ?? 0}</td>
+                  <td className="px-4 py-2">
+                    <span className={p.active ? 'badge-green' : 'badge-gray'}>
+                      {p.active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex gap-1">
+                      <button className="btn-secondary btn-sm" onClick={() => openEdit(p)}>Edit</button>
+                      <button
+                        className={`btn-sm ${p.active ? 'btn-danger' : 'btn-secondary'}`}
+                        onClick={() => toggleActive(p)}
+                      >
+                        {p.active ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}

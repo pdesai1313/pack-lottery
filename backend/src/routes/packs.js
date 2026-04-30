@@ -1,0 +1,53 @@
+const express = require('express')
+const { z } = require('zod')
+const { PrismaClient } = require('@prisma/client')
+const { verifyAccessToken, requireRole } = require('../middleware/auth')
+
+const router = express.Router()
+const prisma = new PrismaClient()
+
+const packSchema = z.object({
+  packId: z.string().min(1),
+  packSize: z.number().int().positive(),
+  ticketValue: z.number().positive(),
+  gameName: z.string().optional().nullable(),
+  scannerNumber: z.string().min(1),
+})
+
+router.get('/', verifyAccessToken, async (req, res) => {
+  const packs = await prisma.pack.findMany({
+    include: { scannerState: true },
+    orderBy: { packId: 'asc' },
+  })
+  res.json(packs)
+})
+
+router.post('/', verifyAccessToken, requireRole('ADMIN'), async (req, res) => {
+  const result = packSchema.safeParse(req.body)
+  if (!result.success) return res.status(400).json({ error: result.error.flatten() })
+
+  const existing = await prisma.pack.findUnique({ where: { packId: result.data.packId } })
+  if (existing) return res.status(409).json({ error: 'Pack ID already exists' })
+
+  const pack = await prisma.$transaction(async (tx) => {
+    const created = await tx.pack.create({ data: result.data })
+    await tx.scannerState.create({ data: { packId: created.id, lastCommittedTicket: 0 } })
+    return created
+  })
+
+  res.status(201).json(pack)
+})
+
+router.put('/:id', verifyAccessToken, requireRole('ADMIN'), async (req, res) => {
+  const id = parseInt(req.params.id, 10)
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid pack ID' })
+
+  const schema = packSchema.partial().extend({ active: z.boolean().optional() })
+  const result = schema.safeParse(req.body)
+  if (!result.success) return res.status(400).json({ error: result.error.flatten() })
+
+  const pack = await prisma.pack.update({ where: { id }, data: result.data })
+  res.json(pack)
+})
+
+module.exports = router
