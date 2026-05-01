@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { getDailySummary } from '../api/shifts'
 import FlagBadge from '../components/FlagBadge'
 
 export default function DailySummary() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const navigate = useNavigate()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['shifts', 'daily', date],
@@ -13,7 +15,8 @@ export default function DailySummary() {
     enabled: !!date,
   })
 
-  const tagBadge = { MORNING: 'badge-blue', EVENING: 'badge-yellow', FULL_DAY: 'badge-green' }
+  const shifts = data?.shifts || []
+  const summary = data?.summary || []
 
   return (
     <div>
@@ -27,68 +30,83 @@ export default function DailySummary() {
         />
       </div>
 
-      {data?.shifts?.length > 0 && (
-        <div className="flex gap-2 mb-4">
-          {data.shifts.map((s) => (
-            <span key={s.id} className={tagBadge[s.shiftTag]}>
-              {s.shiftTag.replace('_', ' ')} — {s.status}
-            </span>
+      {isLoading && <p className="text-gray-400">Loading…</p>}
+      {error && <p className="text-red-500">Failed to load summary</p>}
+
+      {shifts.length > 0 && (
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {shifts.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => navigate(`/shifts/${s.id}/scan`)}
+              className={`${s.status === 'CLOSED' ? 'badge-gray' : 'badge-blue'} cursor-pointer hover:opacity-80`}
+            >
+              {s.shiftTag} — {s.status}
+            </button>
           ))}
         </div>
       )}
 
-      {isLoading && <p className="text-gray-400">Loading…</p>}
-      {error && <p className="text-red-500">Failed to load summary</p>}
-
-      {data?.summary?.length === 0 && (
+      {!isLoading && summary.length === 0 && (
         <p className="text-gray-400 text-center py-8">No shifts found for {date}.</p>
       )}
 
-      {data?.summary?.length > 0 && (
-        <div className="space-y-3">
-          {data.summary.map((row) => (
-            <div key={row.packId} className={`card border ${row.reconciliationWarning ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <span className="font-mono font-semibold">{row.packId}</span>
-                  {row.gameName && <span className="text-gray-400 ml-2 text-xs">{row.gameName}</span>}
-                  <span className="text-gray-400 ml-2 text-xs">SCN: {row.scannerNumber}</span>
-                </div>
-                {row.reconciliationWarning && (
-                  <span className="badge-yellow text-xs">{row.reconciliationWarning}</span>
-                )}
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                {['MORNING', 'EVENING', 'FULL_DAY'].map((tag) => {
-                  const d = row[tag]
-                  return (
-                    <div key={tag} className="bg-white rounded-lg p-2 border border-gray-100">
-                      <div className="flex items-center gap-1 mb-1">
-                        <span className={tagBadge[tag]}>{tag.replace('_', ' ')}</span>
-                        {d?.committed && <span className="badge-green">Committed</span>}
-                      </div>
-                      {d ? (
-                        <>
-                          <p className="text-gray-400">Start → End</p>
-                          <p className="font-mono">{d.startTicket ?? '—'} → {d.endTicket ?? '—'}</p>
-                          <p className="text-gray-400 mt-1">Units / Amount</p>
-                          <p className="font-semibold">{d.unitsSold ?? '—'} / {d.amount != null ? `$${d.amount.toFixed(2)}` : '—'}</p>
-                          {d.flags?.length > 0 && (
-                            <div className="flex gap-1 mt-1 flex-wrap">
-                              {d.flags.map((f) => <FlagBadge key={f} flag={f} />)}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-gray-300 mt-1">No data</p>
-                      )}
+      {summary.length > 0 && shifts.length > 0 && (
+        <div className="card p-0 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Pack</th>
+                {shifts.map((s) => (
+                  <th key={s.id} className="text-left px-3 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      <span>{s.shiftTag}</span>
+                      <span className={s.status === 'CLOSED' ? 'badge-gray' : 'badge-blue'}>{s.status}</span>
                     </div>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {summary.map((row) => (
+                <tr key={row.packId} className="hover:bg-gray-50">
+                  <td className="px-3 py-2">
+                    <p className="font-mono font-semibold text-xs">{row.packId}</p>
+                    {row.gameName && <p className="text-gray-400 text-xs">{row.gameName}</p>}
+                  </td>
+                  {shifts.map((s) => {
+                    const d = row.shifts[s.id]
+                    if (!d) {
+                      return <td key={s.id} className="px-3 py-2 text-xs text-gray-300">—</td>
+                    }
+                    const hasError = d.flags?.some((f) => f.startsWith('ERROR_') || f === 'MISSING_START')
+                    return (
+                      <td key={s.id} className={`px-3 py-2 text-xs ${hasError ? 'bg-red-50' : ''}`}>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="font-semibold">{d.unitsSold ?? '—'}</span>
+                          <span className="text-gray-300">/</span>
+                          <span className="text-green-700 font-semibold">
+                            {d.amount != null ? `$${d.amount.toFixed(2)}` : '—'}
+                          </span>
+                          {!d.committed && <span className="badge-yellow ml-1">Draft</span>}
+                        </div>
+                        {d.startTicket != null && (
+                          <p className="text-gray-400 text-xs font-mono mt-0.5">
+                            {d.startTicket} → {d.endTicket ?? '?'}
+                          </p>
+                        )}
+                        {d.flags?.length > 0 && (
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {d.flags.map((f) => <FlagBadge key={f} flag={f} />)}
+                          </div>
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

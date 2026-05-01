@@ -37,7 +37,10 @@ async function getSettings() {
 router.get('/', verifyAccessToken, async (req, res) => {
   const shifts = await prisma.shift.findMany({
     orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-    include: { createdBy: { select: { name: true, email: true } }, _count: { select: { packStates: true } } },
+    include: {
+      createdBy: { select: { name: true, email: true } },
+      _count: { select: { packStates: true } },
+    },
   })
   res.json(shifts)
 })
@@ -52,6 +55,7 @@ router.get('/daily', verifyAccessToken, async (req, res) => {
   const date = dateResult.data
   const shifts = await prisma.shift.findMany({
     where: { date },
+    orderBy: { createdAt: 'asc' },
     include: {
       packSales: { include: { pack: true } },
       packStates: { include: { pack: true } },
@@ -60,34 +64,30 @@ router.get('/daily', verifyAccessToken, async (req, res) => {
 
   const packs = await prisma.pack.findMany({ where: { active: true }, orderBy: { packId: 'asc' } })
 
-  const byTag = {}
-  for (const s of shifts) byTag[s.shiftTag] = s
-
   const summary = packs.map((pack) => {
-    const row = { packId: pack.packId, gameName: pack.gameName, scannerNumber: pack.scannerNumber }
-    for (const tag of ['MORNING', 'EVENING', 'FULL_DAY']) {
-      const shift = byTag[tag]
-      if (!shift) { row[tag] = null; continue }
-      const sale = shift.packSales.find((s) => s.packId === pack.id)
-      const state = shift.packStates.find((s) => s.packId === pack.id)
-      row[tag] = sale
+    const row = {
+      packId: pack.packId,
+      gameName: pack.gameName,
+      scannerNumber: pack.scannerNumber,
+      shifts: {},
+    }
+    for (const s of shifts) {
+      const sale = s.packSales.find((ps) => ps.packId === pack.id)
+      const state = s.packStates.find((ps) => ps.packId === pack.id)
+      row.shifts[s.id] = sale
         ? { unitsSold: sale.unitsSold, amount: sale.amount, startTicket: sale.startTicket, endTicket: sale.endTicket, committed: true, flags: parseFlags(sale.flags) }
         : state
         ? { unitsSold: state.computedUnits, amount: state.computedAmount, startTicket: state.startTicket, endTicket: state.endTicket, committed: false, flags: parseFlags(state.flags) }
         : null
     }
-
-    const m = row.MORNING?.unitsSold
-    const e = row.EVENING?.unitsSold
-    const f = row.FULL_DAY?.unitsSold
-    row.reconciliationWarning = (m != null && e != null && f != null && m + e !== f)
-      ? `MORNING(${m}) + EVENING(${e}) = ${m + e} ≠ FULL_DAY(${f})`
-      : null
-
     return row
   })
 
-  res.json({ date, shifts: shifts.map((s) => ({ id: s.id, shiftTag: s.shiftTag, status: s.status })), summary })
+  res.json({
+    date,
+    shifts: shifts.map((s) => ({ id: s.id, shiftTag: s.shiftTag, status: s.status })),
+    summary,
+  })
 })
 
 // ── Create shift ──────────────────────────────────────────────────────────────
@@ -95,25 +95,31 @@ router.get('/daily', verifyAccessToken, async (req, res) => {
 router.post('/', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER']), async (req, res) => {
   const schema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    shiftTag: z.enum(['MORNING', 'EVENING', 'FULL_DAY']),
+    shiftName: z.string().min(1).max(100),
+    startSource: z.enum(['previous_day', 'today_last', 'manual']).default('previous_day'),
+    manualShiftId: z.number().int().optional().nullable(),
   })
   const result = schema.safeParse(req.body)
   if (!result.success) return res.status(400).json({ error: result.error.flatten() })
 
-  const { date, shiftTag } = result.data
-
-  const existing = await prisma.shift.findUnique({ where: { date_shiftTag: { date, shiftTag } } })
-  if (existing) return res.status(409).json({ error: `${shiftTag} shift already exists for ${date}` })
+  const { date, shiftName, startSource, manualShiftId } = result.data
 
   const packs = await prisma.pack.findMany({ where: { active: true }, orderBy: { packId: 'asc' } })
 
   const shift = await prisma.$transaction(async (tx) => {
     const created = await tx.shift.create({
-      data: { date, shiftTag, isAuthoritative: shiftTag === 'FULL_DAY', status: 'OPEN', createdById: req.user.id },
+      data: { date, shiftTag: shiftName, isAuthoritative: true, status: 'OPEN', createdById: req.user.id },
     })
 
     for (const pack of packs) {
-      const startTicket = await resolveStartTicket({ shiftTag, packId: pack.id, packSize: pack.packSize, date, prisma: tx })
+      const startTicket = await resolveStartTicket({
+        startSource,
+        manualShiftId: manualShiftId ?? null,
+        packId: pack.id,
+        packSize: pack.packSize,
+        date,
+        prisma: tx,
+      })
       await tx.packState.create({
         data: { packId: pack.id, shiftId: created.id, startTicket: startTicket ?? null },
       })
@@ -324,10 +330,11 @@ router.post('/:id/commit', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER'])
         data: { status: 'CLOSED', overrideReason: override },
       })
 
-      if (shift.isAuthoritative && ps.endTicket != null) {
-        await tx.scannerState.update({
+      if (ps.endTicket != null) {
+        await tx.scannerState.upsert({
           where: { packId: ps.packId },
-          data: { lastCommittedTicket: ps.endTicket, lastCommittedAt: new Date() },
+          update: { lastCommittedTicket: ps.endTicket, lastCommittedAt: new Date() },
+          create: { packId: ps.packId, lastCommittedTicket: ps.endTicket, lastCommittedAt: new Date() },
         })
       }
     }

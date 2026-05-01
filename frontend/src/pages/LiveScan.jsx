@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getShiftPackStates, scanTicket, setStartTicket, updateReconciliation } from '../api/shifts'
 import FlagBadge, { isError } from '../components/FlagBadge'
+import { useAuth } from '../context/AuthContext'
 
 function extractFromBarcode(raw) {
   const trimmed = raw.trim()
@@ -172,12 +173,15 @@ export default function LiveScan() {
   const shiftId = parseInt(id, 10)
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'ADMIN'
 
   const [rowInputs, setRowInputs] = useState({})
   const [rowErrors, setRowErrors] = useState({})
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [panelOpen, setPanelOpen] = useState(true)
+  const [editingStart, setEditingStart] = useState({})
   const inputRefs = useRef({})
   const justSubmitted = useRef({})
 
@@ -366,9 +370,38 @@ export default function LiveScan() {
 
                     {/* Start */}
                     <td className="px-3 py-2">
-                      {ps.startTicket != null ? (
-                        <span className="font-mono text-xs font-medium">{ps.startTicket}</span>
-                      ) : !isClosed ? (
+                      {isClosed ? (
+                        <span className="font-mono text-xs font-medium">{ps.startTicket ?? '—'}</span>
+                      ) : isAdmin && editingStart[ps.id] ? (
+                        <input
+                          className="input w-20 text-xs py-1 font-mono"
+                          type="number"
+                          autoFocus
+                          defaultValue={ps.startTicket ?? ''}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.target.value) {
+                              startMutation.mutate({ packId: ps.packId, startTicket: Number(e.target.value) })
+                              setEditingStart((p) => ({ ...p, [ps.id]: false }))
+                            }
+                            if (e.key === 'Escape') setEditingStart((p) => ({ ...p, [ps.id]: false }))
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value) startMutation.mutate({ packId: ps.packId, startTicket: Number(e.target.value) })
+                            setEditingStart((p) => ({ ...p, [ps.id]: false }))
+                          }}
+                        />
+                      ) : ps.startTicket != null ? (
+                        <div className="flex items-center gap-1">
+                          <span className="font-mono text-xs font-medium">{ps.startTicket}</span>
+                          {isAdmin && (
+                            <button
+                              className="text-gray-300 hover:text-blue-500 text-sm leading-none"
+                              title="Edit start ticket"
+                              onClick={() => setEditingStart((p) => ({ ...p, [ps.id]: true }))}
+                            >✎</button>
+                          )}
+                        </div>
+                      ) : (
                         <input
                           className="input w-14 text-xs py-1"
                           type="number"
@@ -376,7 +409,7 @@ export default function LiveScan() {
                           onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value) startMutation.mutate({ packId: ps.packId, startTicket: Number(e.target.value) }) }}
                           onBlur={(e) => { if (e.target.value) startMutation.mutate({ packId: ps.packId, startTicket: Number(e.target.value) }) }}
                         />
-                      ) : <span className="text-gray-300 text-xs">—</span>}
+                      )}
                     </td>
 
                     {/* Scan input */}
@@ -389,7 +422,7 @@ export default function LiveScan() {
                         <div>
                           <input
                             ref={(el) => (inputRefs.current[ps.id] = el)}
-                            className={`input w-full min-w-[120px] text-xs py-1 font-mono focus:ring-2 focus:ring-blue-400 ${
+                            className={`input w-36 text-xs py-1 font-mono focus:ring-2 focus:ring-blue-400 ${
                               hasError ? 'border-red-400' : isScanned ? 'border-green-400' : 'border-blue-300'
                             }`}
                             type="text"

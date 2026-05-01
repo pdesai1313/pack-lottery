@@ -4,6 +4,7 @@ const FLAGS = {
   ERROR_NON_NUMERIC_TICKET: 'ERROR_NON_NUMERIC_TICKET',
   WARNING_SMALL_MISMATCH: 'WARNING_SMALL_MISMATCH',
   WARNING_DUPLICATE_SCAN: 'WARNING_DUPLICATE_SCAN',
+  WARNING_NEW_BOOK: 'WARNING_NEW_BOOK',
   MISSING_START: 'MISSING_START',
 }
 
@@ -26,13 +27,11 @@ function isErrorFlag(flag) {
  */
 function extractTicketNumber(raw) {
   const trimmed = raw.trim()
-  // Barcode strings from the scanner are long (20+ chars)
   if (trimmed.length >= 13) {
     const extracted = trimmed.substring(10, 13)
     const num = parseInt(extracted, 10)
     return { ticketNumber: isNaN(num) ? null : num, rawBarcode: trimmed }
   }
-  // Short input = manual ticket number
   const num = parseInt(trimmed, 10)
   return { ticketNumber: isNaN(num) ? null : num, rawBarcode: null }
 }
@@ -46,8 +45,10 @@ function initialTicket(packSize) {
 }
 
 /**
- * Compute Units = Start - End (tickets go DOWN as sold).
- * Pure function — no DB calls.
+ * Compute units sold. Normal: start - end (tickets decrease as sold).
+ * Wraparound: when a new book is opened mid-shift, the end ticket number
+ * is higher than start (new book starts at packSize-1). In that case:
+ * units = startTicket + packSize - endTicket.
  */
 function computeDelta({ rawInput, startTicket, packSize, ticketValue, toleranceTickets, existingEndTickets = [] }) {
   const flags = []
@@ -65,14 +66,20 @@ function computeDelta({ rawInput, startTicket, packSize, ticketValue, toleranceT
     return { endTicket, computedUnits: null, computedAmount: null, flags, rawBarcode }
   }
 
-  // Units = Start - End  (ticket numbers decrease as sold)
-  const computedUnits = startTicket - endTicket
+  let computedUnits
+  if (endTicket > startTicket) {
+    // New book opened during shift: scanned ticket belongs to a fresh pack
+    computedUnits = startTicket + packSize - endTicket
+    flags.push(FLAGS.WARNING_NEW_BOOK)
+  } else {
+    computedUnits = startTicket - endTicket
+  }
+
   const computedAmount = parseFloat((computedUnits * ticketValue).toFixed(2))
 
   if (computedUnits < 0) flags.push(FLAGS.ERROR_NEGATIVE_DELTA)
-  if (computedUnits > packSize) flags.push(FLAGS.ERROR_OVERFLOW)
+  if (computedUnits > 2 * packSize) flags.push(FLAGS.ERROR_OVERFLOW)
 
-  // Warning when only a few tickets remain (near-empty)
   if (
     flags.length === 0 &&
     endTicket >= 0 &&
@@ -89,33 +96,39 @@ function computeDelta({ rawInput, startTicket, packSize, ticketValue, toleranceT
 }
 
 /**
- * Resolve StartTicket for a new PackState based on shift type.
+ * Resolve the start ticket for a new PackState.
  *
- * MORNING  → ScannerState.lastCommittedTicket (from previous FULL_DAY)
- *            If 0 (new pack) → PackSize - 1
- * EVENING  → same-day MORNING PackSale.endTicket for this pack
- * FULL_DAY → ScannerState.lastCommittedTicket (same as MORNING, NOT EVENING's end)
- *            If 0 (new pack) → PackSize - 1
+ * startSource options:
+ *   'previous_day' (default) — use ScannerState.lastCommittedTicket (updated on every commit)
+ *   'today_last'             — use the most recent closed shift today
+ *   'manual'                 — use a specific shift's committed end ticket
  */
-async function resolveStartTicket({ shiftTag, packId, packSize, date, prisma }) {
-  if (shiftTag === 'MORNING' || shiftTag === 'FULL_DAY') {
-    const state = await prisma.scannerState.findUnique({ where: { packId } })
-    if (!state) return initialTicket(packSize)
-    return state.lastCommittedTicket === 0 ? initialTicket(packSize) : state.lastCommittedTicket
+async function resolveStartTicket({ startSource, manualShiftId, packId, packSize, date, prisma }) {
+  if (startSource === 'today_last') {
+    const todayShift = await prisma.shift.findFirst({
+      where: { date, status: 'CLOSED' },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (todayShift) {
+      const sale = await prisma.packSale.findUnique({
+        where: { packId_shiftId: { packId, shiftId: todayShift.id } },
+      })
+      if (sale) return sale.endTicket
+    }
+    // No closed shift today — fall through to scanner state
   }
 
-  if (shiftTag === 'EVENING') {
-    const morningShift = await prisma.shift.findUnique({
-      where: { date_shiftTag: { date, shiftTag: 'MORNING' } },
-    })
-    if (!morningShift) return null
+  if (startSource === 'manual' && manualShiftId) {
     const sale = await prisma.packSale.findUnique({
-      where: { packId_shiftId: { packId, shiftId: morningShift.id } },
+      where: { packId_shiftId: { packId, shiftId: manualShiftId } },
     })
     return sale ? sale.endTicket : null
   }
 
-  return null
+  // Default: use scanner state (last committed ticket across all shifts)
+  const state = await prisma.scannerState.findUnique({ where: { packId } })
+  if (!state) return initialTicket(packSize)
+  return state.lastCommittedTicket === 0 ? initialTicket(packSize) : state.lastCommittedTicket
 }
 
 module.exports = { FLAGS, parseFlags, serializeFlags, isErrorFlag, computeDelta, resolveStartTicket, extractTicketNumber, initialTicket }

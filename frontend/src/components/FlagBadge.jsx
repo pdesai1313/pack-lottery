@@ -5,6 +5,7 @@ const FLAG_STYLE = {
   MISSING_START: 'badge-red',
   WARNING_SMALL_MISMATCH: 'badge-yellow',
   WARNING_DUPLICATE_SCAN: 'badge-yellow',
+  WARNING_NEW_BOOK: 'badge-yellow',
 }
 
 const FLAG_LABEL = {
@@ -14,6 +15,7 @@ const FLAG_LABEL = {
   MISSING_START: 'Missing start',
   WARNING_SMALL_MISMATCH: 'Near full',
   WARNING_DUPLICATE_SCAN: 'Duplicate scan',
+  WARNING_NEW_BOOK: 'New book',
 }
 
 export default function FlagBadge({ flag }) {

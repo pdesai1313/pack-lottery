@@ -8,7 +8,7 @@ datasource db {
 }
 
 // Role: ADMIN | REVIEWER | OPERATOR
-// ShiftTag: MORNING | EVENING | FULL_DAY
+// ShiftTag: free-text name (e.g. "Morning", "Evening", "Recount")
 // ShiftStatus: OPEN | CLOSED
 // PackStateStatus: OPEN | CLOSED
 
@@ -76,7 +76,6 @@ model Shift {
   packStates PackState[]
   packSales  PackSale[]
 
-  @@unique([date, shiftTag])
   @@map("shifts")
 }
 
