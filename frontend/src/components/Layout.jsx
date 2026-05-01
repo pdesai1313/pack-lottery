@@ -6,6 +6,7 @@ const NAV = [
   { label: 'Daily Summary', to: '/daily', roles: ['ADMIN', 'REVIEWER', 'OPERATOR'] },
   { label: 'Packs', to: '/packs', roles: ['ADMIN'] },
   { label: 'Users', to: '/users', roles: ['ADMIN'] },
+  { label: 'Reports', to: '/reports', roles: ['ADMIN', 'REVIEWER'] },
   { label: 'Settings', to: '/settings', roles: ['ADMIN'] },
 ]
 
