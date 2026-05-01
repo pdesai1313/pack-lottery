@@ -1,9 +1,37 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getShiftPackStates, commitShift, exportCsv } from '../api/shifts'
 import FlagBadge, { isError } from '../components/FlagBadge'
 import { useAuth } from '../context/AuthContext'
+
+function ConfirmModal({ totalAmount, shiftsCount, onConfirm, onCancel, isPending }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onCancel() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
+        <h3 className="text-lg font-bold mb-1">Commit this shift?</h3>
+        <p className="text-gray-500 text-sm mb-4">
+          This will lock the shift and cannot be undone.
+        </p>
+        <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 mb-5 text-sm">
+          <div className="flex justify-between"><span className="text-gray-500">Instant Sale</span><span className="font-bold text-green-700">${totalAmount.toFixed(2)}</span></div>
+        </div>
+        <div className="flex gap-3">
+          <button className="btn-secondary flex-1" onClick={onCancel} disabled={isPending}>Cancel</button>
+          <button className="btn-primary flex-1" onClick={onConfirm} disabled={isPending}>
+            {isPending ? 'Committing…' : 'Yes, Commit'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function CommitShift() {
   const { id } = useParams()
@@ -14,6 +42,7 @@ export default function CommitShift() {
 
   const [overrides, setOverrides] = useState({})
   const [commitError, setCommitError] = useState('')
+  const [showConfirm, setShowConfirm] = useState(false)
 
   const { data: shift, isLoading } = useQuery({
     queryKey: ['shifts', shiftId, 'packstates'],
@@ -49,6 +78,14 @@ export default function CommitShift() {
 
   return (
     <div>
+      {showConfirm && (
+        <ConfirmModal
+          totalAmount={totalAmount}
+          onConfirm={() => { setShowConfirm(false); commitMutation.mutate() }}
+          onCancel={() => setShowConfirm(false)}
+          isPending={commitMutation.isPending}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div>
@@ -64,7 +101,7 @@ export default function CommitShift() {
             <button
               className="btn-primary btn-sm"
               disabled={unresolvedErrors.length > 0 || commitMutation.isPending}
-              onClick={() => { setCommitError(''); commitMutation.mutate() }}
+              onClick={() => { setCommitError(''); setShowConfirm(true) }}
             >
               {commitMutation.isPending ? 'Committing…' : 'Commit Shift'}
             </button>

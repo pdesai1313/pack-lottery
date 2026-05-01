@@ -13,19 +13,52 @@ function isBarcode(raw) { return raw.trim().length >= 13 }
 function fmt(n) { return n != null ? `$${Number(n).toFixed(2)}` : '—' }
 function toNum(v) { return v === '' || v == null ? null : parseFloat(v) }
 
+// ── Filter bar ────────────────────────────────────────────────────────────────
+
+function FilterBar({ filter, onFilter, search, onSearch, counts }) {
+  const filters = [
+    { key: 'all',      label: 'All',      count: counts.all },
+    { key: 'errors',   label: 'Errors',   count: counts.errors },
+    { key: 'warnings', label: 'Warnings', count: counts.warnings },
+    { key: 'ok',       label: 'OK',       count: counts.ok },
+    { key: 'unscanned',label: 'Unscanned',count: counts.unscanned },
+  ]
+  return (
+    <div className="flex items-center gap-3 flex-wrap mb-3">
+      <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
+        {filters.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => onFilter(f.key)}
+            className={`px-3 py-1.5 font-medium transition-colors ${
+              filter === f.key ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {f.label} <span className={`ml-1 ${filter === f.key ? 'text-blue-200' : 'text-gray-400'}`}>({f.count})</span>
+          </button>
+        ))}
+      </div>
+      <input
+        className="input py-1 text-xs w-40"
+        placeholder="Search pack #…"
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
+      />
+    </div>
+  )
+}
+
 // ── Reconciliation panel ──────────────────────────────────────────────────────
 
-function ReconField({ label, hint, value, onChange, onBlur, isClosed, displayValue }) {
+function ReconField({ label, value, onChange, onBlur, isClosed, displayValue }) {
   return (
-    <div>
-      <label className="block text-xs text-gray-500 mb-0.5">
-        {label}{hint && <span className="text-gray-400 ml-1">({hint})</span>}
-      </label>
+    <div className="flex items-center justify-between gap-2">
+      <label className="text-xs text-gray-500 whitespace-nowrap">{label}</label>
       {isClosed ? (
-        <p className="font-mono font-semibold text-sm">{displayValue}</p>
+        <span className="font-mono text-xs font-semibold">{displayValue}</span>
       ) : (
         <input
-          className="input py-1 text-sm"
+          className="input py-0.5 text-xs w-28 text-right font-mono"
           type="number"
           step="0.01"
           placeholder="0.00"
@@ -75,44 +108,58 @@ function ReconciliationPanel({ shift, shiftId, isClosed, instantSale, onCommit, 
   const expectedCOH  = totalSale - atmNum - totalCash
   const overallTotal = actualCOHNum != null ? actualCOHNum - expectedCOH : null
 
+  const overallColor = overallTotal == null ? 'text-gray-400'
+    : overallTotal >= 0 ? 'text-green-700' : 'text-red-600'
+
   return (
     <div className="w-72 flex-shrink-0">
-      <div className="card sticky top-4 space-y-3">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Reconciliation</p>
+      <div className="card sticky top-4 space-y-4 p-4">
+        <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Reconciliation</p>
 
-        {/* Instant sale from packs — read only */}
-        <div className="rounded bg-green-50 border border-green-200 px-3 py-2">
-          <p className="text-xs text-green-700">Instant Sale (from packs)</p>
-          <p className="font-bold text-green-800 text-lg">{fmt(instantSale)}</p>
+        {/* Sales section */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Sales</p>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-500">Instant Sale</span>
+            <span className="font-mono text-xs font-bold text-green-700">{fmt(instantSale)}</span>
+          </div>
+          <ReconField label="Online Sale" value={fields.onlineSale} onChange={setField('onlineSale')} onBlur={handleBlur} isClosed={isClosed} displayValue={fmt(toNum(fields.onlineSale))} />
         </div>
 
+        <div className="border-t border-gray-100" />
+
+        {/* Cash section */}
         <div className="space-y-2">
-          <ReconField label="Online Sale" hint="terminal" value={fields.onlineSale} onChange={setField('onlineSale')} onBlur={handleBlur} isClosed={isClosed} displayValue={fmt(toNum(fields.onlineSale))} />
-          <ReconField label="ATM" hint="fed into machine" value={fields.atm} onChange={setField('atm')} onBlur={handleBlur} isClosed={isClosed} displayValue={fmt(toNum(fields.atm))} />
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Cash</p>
+          <ReconField label="ATM" value={fields.atm} onChange={setField('atm')} onBlur={handleBlur} isClosed={isClosed} displayValue={fmt(toNum(fields.atm))} />
           <ReconField label="Online Cash" value={fields.onlineCash} onChange={setField('onlineCash')} onBlur={handleBlur} isClosed={isClosed} displayValue={fmt(toNum(fields.onlineCash))} />
           <ReconField label="Instant Cash" value={fields.instantCash} onChange={setField('instantCash')} onBlur={handleBlur} isClosed={isClosed} displayValue={fmt(toNum(fields.instantCash))} />
-          <ReconField label="Actual Cash on Hand" hint="physical count" value={fields.actualCashOnHand} onChange={setField('actualCashOnHand')} onBlur={handleBlur} isClosed={isClosed} displayValue={fmt(toNum(fields.actualCashOnHand))} />
+          <ReconField label="Actual COH" value={fields.actualCashOnHand} onChange={setField('actualCashOnHand')} onBlur={handleBlur} isClosed={isClosed} displayValue={fmt(toNum(fields.actualCashOnHand))} />
         </div>
 
-        {/* Computed summary */}
-        <div className="border-t border-gray-100 pt-2 space-y-1 text-xs">
-          <div className="flex justify-between text-gray-500"><span>Total Sale</span><span className="font-mono">{fmt(totalSale)}</span></div>
-          <div className="flex justify-between text-gray-500"><span>Total Cash</span><span className="font-mono">{fmt(totalCash)}</span></div>
-          <div className="flex justify-between text-gray-500"><span>Expected COH</span><span className="font-mono">{fmt(expectedCOH)}</span></div>
-          <div className={`flex justify-between font-bold text-sm pt-1 border-t border-gray-200 ${overallTotal == null ? 'text-gray-400' : overallTotal >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+        <div className="border-t border-gray-100" />
+
+        {/* Totals section */}
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Totals</p>
+          <div className="flex justify-between text-xs text-gray-500"><span>Total Sale</span><span className="font-mono">{fmt(totalSale)}</span></div>
+          <div className="flex justify-between text-xs text-gray-500"><span>Total Cash</span><span className="font-mono">{fmt(totalCash)}</span></div>
+          <div className="flex justify-between text-xs text-gray-500"><span>Expected COH</span><span className="font-mono">{fmt(expectedCOH)}</span></div>
+          <div className={`flex justify-between text-sm font-bold pt-1 border-t border-gray-200 ${overallColor}`}>
             <span>Overall Total</span>
-            <span className="font-mono">{overallTotal != null ? fmt(overallTotal) : '—'}</span>
+            <span className="font-mono">
+              {overallTotal != null ? (overallTotal >= 0 ? `+${fmt(overallTotal)}` : fmt(overallTotal)) : '—'}
+            </span>
           </div>
         </div>
 
         {!isClosed && canCommit && (
-          <button className="btn-primary w-full mt-1" onClick={onCommit}>
-            Commit Shift →
+          <button className="btn-primary w-full" onClick={onCommit}>
+            Review & Commit →
           </button>
         )}
-        {saveMutation.isError && (
-          <p className="text-red-500 text-xs">Save failed</p>
-        )}
+
+        {saveMutation.isError && <p className="text-red-500 text-xs">Save failed</p>}
       </div>
     </div>
   )
@@ -128,6 +175,8 @@ export default function LiveScan() {
 
   const [rowInputs, setRowInputs] = useState({})
   const [rowErrors, setRowErrors] = useState({})
+  const [filter, setFilter] = useState('all')
+  const [search, setSearch] = useState('')
   const inputRefs = useRef({})
   const justSubmitted = useRef({})
 
@@ -188,7 +237,6 @@ export default function LiveScan() {
     e.preventDefault()
     submit(ps, idx, getValue(ps.id))
   }
-
   function handleBlur(e, ps, idx) { submit(ps, idx, e.target.value) }
 
   if (isLoading) return <p className="text-gray-400 p-4">Loading…</p>
@@ -199,6 +247,26 @@ export default function LiveScan() {
   const totalUnits = packStates.reduce((s, ps) => s + (ps.computedUnits || 0), 0)
   const totalAmount = packStates.reduce((s, ps) => s + (ps.computedAmount || 0), 0)
 
+  // Filter counts
+  const counts = {
+    all:      packStates.length,
+    errors:   packStates.filter((ps) => (ps.flags || []).some(isError)).length,
+    warnings: packStates.filter((ps) => { const f = ps.flags || []; return f.length > 0 && !f.some(isError) }).length,
+    ok:       packStates.filter((ps) => ps.endTicket != null && (ps.flags || []).length === 0).length,
+    unscanned:packStates.filter((ps) => ps.endTicket == null).length,
+  }
+
+  // Apply filter + search
+  const visiblePackStates = packStates.filter((ps) => {
+    const flags = ps.flags || []
+    if (search && !ps.pack.packId.toLowerCase().includes(search.toLowerCase())) return false
+    if (filter === 'errors')    return flags.some(isError)
+    if (filter === 'warnings')  return flags.length > 0 && !flags.some(isError)
+    if (filter === 'ok')        return ps.endTicket != null && flags.length === 0
+    if (filter === 'unscanned') return ps.endTicket == null
+    return true
+  })
+
   return (
     <div>
       {/* Header */}
@@ -208,7 +276,10 @@ export default function LiveScan() {
           <p className="text-gray-500 text-xs">
             {shift.date} · {shift.shiftTag.replace('_', ' ')} ·{' '}
             <span className="font-medium">{scannedCount}/{packStates.length} scanned</span>
-            {' · '}<span className="font-medium text-green-700">${totalAmount.toFixed(2)}</span>
+            {' · '}
+            <span className="font-semibold text-green-700">{fmt(totalAmount)}</span>
+            {' · '}
+            <span className="text-gray-400">{totalUnits} units</span>
           </p>
         </div>
         {!isClosed && (
@@ -224,6 +295,13 @@ export default function LiveScan() {
         </div>
       )}
 
+      {/* Filter bar */}
+      <FilterBar
+        filter={filter} onFilter={setFilter}
+        search={search} onSearch={setSearch}
+        counts={counts}
+      />
+
       {/* Two-column layout */}
       <div className="flex gap-4 items-start">
 
@@ -232,58 +310,70 @@ export default function LiveScan() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
               <tr>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500 w-6">#</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">Pack</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">Sz</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">Val</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">Start</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500 bg-blue-50">
-                  Barcode <span className="text-blue-400 font-normal">(scan)</span>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 w-6">#</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Pack</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Sz</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Val</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Start</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 bg-blue-50">
+                  Scan Input
                 </th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">End</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">Units</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">Amt</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">Mode</th>
-                <th className="text-left px-2 py-1.5 text-xs font-medium text-gray-500">Flags</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">End</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-gray-500">Units</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-gray-500">Amount</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Mode</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Flags</th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-gray-50">
-              {packStates.map((ps, idx) => {
+            <tbody>
+              {visiblePackStates.length === 0 && (
+                <tr><td colSpan={11} className="text-center text-gray-400 text-xs py-8">No packs match this filter.</td></tr>
+              )}
+              {visiblePackStates.map((ps, idx) => {
                 const flags = ps.flags || []
                 const hasError = flags.some(isError)
+                const hasWarning = flags.length > 0 && !hasError
                 const isScanned = ps.endTicket != null
                 const mode = getMode(ps.id)
                 const liveVal = getValue(ps.id)
 
                 const liveExtracted = liveVal && isBarcode(liveVal) ? extractFromBarcode(liveVal) : liveVal || null
-                const displayExtracted = ps.rawBarcode
-                  ? extractFromBarcode(ps.rawBarcode)
-                  : ps.endTicket != null ? String(ps.endTicket) : null
+                const displayEnd = ps.endTicket ?? (liveVal && mode === 'scanner' ? liveExtracted : null)
 
+                // Row background — striped + status color
                 const rowBg = hasError ? 'bg-red-50'
-                  : flags.length > 0 ? 'bg-yellow-50'
-                  : isScanned ? 'bg-green-50/60'
-                  : ''
+                  : hasWarning ? 'bg-yellow-50'
+                  : isScanned ? (idx % 2 === 0 ? 'bg-green-50/40' : 'bg-green-50/60')
+                  : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/60')
+
+                // Color-code units and amount
+                const unitsColor = ps.computedUnits == null ? 'text-gray-300'
+                  : ps.computedUnits < 0 ? 'text-red-600 font-bold'
+                  : ps.computedUnits === 0 ? 'text-gray-400'
+                  : 'text-gray-900 font-semibold'
+                const amountColor = ps.computedAmount == null ? 'text-gray-300'
+                  : ps.computedAmount < 0 ? 'text-red-600 font-bold'
+                  : 'text-green-700 font-semibold'
 
                 return (
-                  <tr key={ps.id} className={`${rowBg} hover:bg-blue-50/30 transition-colors`}>
-                    <td className="px-2 py-1 text-gray-400 text-xs">{idx + 1}</td>
+                  <tr key={ps.id} className={`${rowBg} hover:bg-blue-50/30 transition-colors border-b border-gray-100`}>
+                    <td className="px-3 py-2 text-gray-400 text-xs">{idx + 1}</td>
 
-                    <td className="px-2 py-1">
+                    <td className="px-3 py-2">
                       <p className="font-mono font-semibold text-xs">{ps.pack.packId}</p>
                     </td>
 
-                    <td className="px-2 py-1 text-gray-500 text-xs">{ps.pack.packSize}</td>
-                    <td className="px-2 py-1 text-gray-500 text-xs">${ps.pack.ticketValue.toFixed(0)}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{ps.pack.packSize}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">${ps.pack.ticketValue.toFixed(0)}</td>
 
                     {/* Start */}
-                    <td className="px-2 py-1">
+                    <td className="px-3 py-2">
                       {ps.startTicket != null ? (
                         <span className="font-mono text-xs font-medium">{ps.startTicket}</span>
                       ) : !isClosed ? (
                         <input
-                          className="input w-14 text-xs py-0.5"
+                          className="input w-14 text-xs py-1"
                           type="number"
                           placeholder="Set"
                           onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value) startMutation.mutate({ packId: ps.packId, startTicket: Number(e.target.value) }) }}
@@ -292,8 +382,8 @@ export default function LiveScan() {
                       ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
 
-                    {/* Barcode */}
-                    <td className="px-2 py-1 bg-blue-50/40">
+                    {/* Scan input */}
+                    <td className="px-3 py-2 bg-blue-50/30">
                       {isClosed ? (
                         <span className="font-mono text-xs text-gray-500 truncate block max-w-[120px]" title={ps.rawBarcode || ''}>
                           {ps.rawBarcode || '—'}
@@ -302,9 +392,11 @@ export default function LiveScan() {
                         <div>
                           <input
                             ref={(el) => (inputRefs.current[ps.id] = el)}
-                            className={`input w-40 text-xs py-0.5 font-mono ${hasError ? 'border-red-400' : isScanned ? 'border-green-400' : 'border-blue-300'}`}
+                            className={`input w-40 text-xs py-1 font-mono focus:ring-2 focus:ring-blue-400 ${
+                              hasError ? 'border-red-400' : isScanned ? 'border-green-400' : 'border-blue-300'
+                            }`}
                             type="text"
-                            placeholder="Scan here…"
+                            placeholder="Scan barcode…"
                             value={liveVal}
                             onChange={(e) => setValue(ps.id, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, ps, idx)}
@@ -315,21 +407,19 @@ export default function LiveScan() {
                           )}
                         </div>
                       ) : (
-                        <span className="text-gray-300 text-xs">—</span>
+                        <span className="text-gray-300 text-xs">— manual</span>
                       )}
                       {rowErrors[ps.id] && <p className="text-red-500 text-xs mt-0.5">{rowErrors[ps.id]}</p>}
                     </td>
 
                     {/* End */}
-                    <td className="px-2 py-1">
+                    <td className="px-3 py-2">
                       {isClosed || mode === 'scanner' ? (
-                        <span className="font-mono text-xs font-semibold">
-                          {ps.endTicket ?? (liveVal && mode === 'scanner' ? liveExtracted : '—')}
-                        </span>
+                        <span className="font-mono text-xs font-semibold">{displayEnd ?? '—'}</span>
                       ) : (
                         <input
                           ref={(el) => (inputRefs.current[ps.id] = el)}
-                          className={`input w-16 text-xs py-0.5 font-mono ${hasError ? 'border-red-400' : isScanned ? 'border-green-400' : ''}`}
+                          className={`input w-16 text-xs py-1 font-mono ${hasError ? 'border-red-400' : isScanned ? 'border-green-400' : ''}`}
                           type="text"
                           placeholder="#"
                           value={liveVal}
@@ -340,21 +430,21 @@ export default function LiveScan() {
                       )}
                     </td>
 
-                    <td className="px-2 py-1 text-xs font-semibold">{ps.computedUnits ?? '—'}</td>
-                    <td className="px-2 py-1 text-xs font-semibold">{ps.computedAmount != null ? `$${ps.computedAmount.toFixed(2)}` : '—'}</td>
+                    <td className={`px-3 py-2 text-xs text-right ${unitsColor}`}>{ps.computedUnits ?? '—'}</td>
+                    <td className={`px-3 py-2 text-xs text-right ${amountColor}`}>{ps.computedAmount != null ? fmt(ps.computedAmount) : '—'}</td>
 
                     {/* Mode toggle */}
-                    <td className="px-2 py-1">
+                    <td className="px-3 py-2">
                       {!isClosed && (
                         <div className="flex rounded overflow-hidden border border-gray-200 w-fit text-xs">
-                          <button className={`px-1.5 py-0.5 font-medium transition-colors ${mode === 'scanner' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500'}`} onClick={() => setMode(ps.id, 'scanner')}>S</button>
-                          <button className={`px-1.5 py-0.5 font-medium transition-colors ${mode === 'manual' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500'}`} onClick={() => setMode(ps.id, 'manual')}>M</button>
+                          <button className={`px-2 py-1 font-medium transition-colors ${mode === 'scanner' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`} onClick={() => setMode(ps.id, 'scanner')}>Scan</button>
+                          <button className={`px-2 py-1 font-medium transition-colors ${mode === 'manual' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`} onClick={() => setMode(ps.id, 'manual')}>Manual</button>
                         </div>
                       )}
                     </td>
 
                     {/* Flags */}
-                    <td className="px-2 py-1">
+                    <td className="px-3 py-2">
                       <div className="flex gap-1 flex-wrap">
                         {flags.length === 0 && isScanned && <span className="badge-green text-xs">OK</span>}
                         {flags.map((f) => <FlagBadge key={f} flag={f} />)}
@@ -365,14 +455,14 @@ export default function LiveScan() {
               })}
             </tbody>
 
-            {scannedCount > 0 && (
+            {scannedCount > 0 && filter === 'all' && !search && (
               <tfoot className="bg-gray-50 border-t-2 border-gray-300">
                 <tr>
-                  <td colSpan={7} className="px-2 py-1.5 text-xs font-semibold text-gray-600 text-right">
-                    TOTAL ({scannedCount}/{packStates.length})
+                  <td colSpan={7} className="px-3 py-2 text-xs font-semibold text-gray-600 text-right">
+                    TOTAL ({scannedCount}/{packStates.length} scanned)
                   </td>
-                  <td className="px-2 py-1.5 text-xs font-bold text-gray-900">{totalUnits}</td>
-                  <td className="px-2 py-1.5 text-xs font-bold text-gray-900">${totalAmount.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-xs font-bold text-right">{totalUnits}</td>
+                  <td className="px-3 py-2 text-xs font-bold text-right text-green-700">{fmt(totalAmount)}</td>
                   <td colSpan={2} />
                 </tr>
               </tfoot>
@@ -390,10 +480,6 @@ export default function LiveScan() {
           onCommit={() => navigate(`/shifts/${shiftId}/commit`)}
         />
       </div>
-
-      <p className="text-gray-400 text-xs mt-2">
-        S = Scanner mode (scan barcode) · M = Manual mode (type ticket # directly)
-      </p>
     </div>
   )
 }
