@@ -135,7 +135,7 @@ router.get('/:id/packstates', verifyAccessToken, async (req, res) => {
   const shift = await prisma.shift.findUnique({
     where: { id },
     include: {
-      packStates: { include: { pack: { include: { scannerState: true } } } },
+      packStates: { include: { pack: { include: { scannerState: true } } }, orderBy: { pack: { packId: 'asc' } } },
       createdBy: { select: { name: true, email: true } },
     },
   })

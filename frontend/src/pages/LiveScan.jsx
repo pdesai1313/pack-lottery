@@ -31,7 +31,7 @@ export default function LiveScan() {
   const { data: shift, isLoading } = useQuery({
     queryKey: ['shifts', shiftId, 'packstates'],
     queryFn: () => getShiftPackStates(shiftId),
-    refetchInterval: 20000,
+    refetchInterval: 300000,
   })
 
   const packStates = shift?.packStates || []
@@ -92,7 +92,7 @@ export default function LiveScan() {
   }
 
   function handleBlur(e, ps, idx) {
-    submit(ps, idx, getValue(ps.id))
+    submit(ps, idx, e.target.value)
   }
 
   if (isLoading) return <p className="text-gray-400 p-4">Loading…</p>
