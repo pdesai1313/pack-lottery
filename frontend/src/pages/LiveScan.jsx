@@ -177,6 +177,7 @@ export default function LiveScan() {
   const [rowErrors, setRowErrors] = useState({})
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [panelOpen, setPanelOpen] = useState(true)
   const inputRefs = useRef({})
   const justSubmitted = useRef({})
 
@@ -303,26 +304,24 @@ export default function LiveScan() {
       />
 
       {/* Two-column layout */}
-      <div className="flex gap-4 items-start">
+      <div className="flex gap-3 items-start">
 
         {/* Left: scan table */}
-        <div className="flex-1 min-w-0 card p-0 overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="flex-1 min-w-0 card p-0">
+          <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
               <tr>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 w-6">#</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Pack</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Sz</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Val</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Start</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 bg-blue-50">
-                  Scan Input
-                </th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">End</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-gray-500">Units</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-gray-500">Amount</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Mode</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Flags</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 sticky left-0 bg-gray-50 z-20 w-6">#</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 sticky left-6 bg-gray-50 z-20">Pack</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Sz</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Val</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Start</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 bg-blue-50 w-full">Scan Input</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">End</th>
+                <th className="text-right px-2 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Units</th>
+                <th className="text-right px-2 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Amount</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Mode</th>
+                <th className="text-left px-2 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">Flags</th>
               </tr>
             </thead>
 
@@ -358,14 +357,12 @@ export default function LiveScan() {
 
                 return (
                   <tr key={ps.id} className={`${rowBg} hover:bg-blue-50/30 transition-colors border-b border-gray-100`}>
-                    <td className="px-3 py-2 text-gray-400 text-xs">{idx + 1}</td>
-
-                    <td className="px-3 py-2">
-                      <p className="font-mono font-semibold text-xs">{ps.pack.packId}</p>
+                    <td className={`px-2 py-2 text-gray-400 text-xs sticky left-0 z-10 ${rowBg || 'bg-white'}`}>{idx + 1}</td>
+                    <td className={`px-2 py-2 sticky left-6 z-10 ${rowBg || 'bg-white'}`}>
+                      <p className="font-mono font-semibold text-xs whitespace-nowrap">{ps.pack.packId}</p>
                     </td>
-
-                    <td className="px-3 py-2 text-gray-500 text-xs">{ps.pack.packSize}</td>
-                    <td className="px-3 py-2 text-gray-500 text-xs">${ps.pack.ticketValue.toFixed(0)}</td>
+                    <td className="px-2 py-2 text-gray-500 text-xs whitespace-nowrap">{ps.pack.packSize}</td>
+                    <td className="px-2 py-2 text-gray-500 text-xs whitespace-nowrap">${ps.pack.ticketValue.toFixed(0)}</td>
 
                     {/* Start */}
                     <td className="px-3 py-2">
@@ -392,7 +389,7 @@ export default function LiveScan() {
                         <div>
                           <input
                             ref={(el) => (inputRefs.current[ps.id] = el)}
-                            className={`input w-40 text-xs py-1 font-mono focus:ring-2 focus:ring-blue-400 ${
+                            className={`input w-full min-w-[120px] text-xs py-1 font-mono focus:ring-2 focus:ring-blue-400 ${
                               hasError ? 'border-red-400' : isScanned ? 'border-green-400' : 'border-blue-300'
                             }`}
                             type="text"
@@ -470,15 +467,26 @@ export default function LiveScan() {
           </table>
         </div>
 
-        {/* Right: reconciliation panel */}
-        <ReconciliationPanel
-          shift={shift}
-          shiftId={shiftId}
-          isClosed={isClosed}
-          instantSale={totalAmount}
-          canCommit={true}
-          onCommit={() => navigate(`/shifts/${shiftId}/commit`)}
-        />
+        {/* Right: reconciliation panel (collapsible) */}
+        <div className="flex-shrink-0 flex items-start gap-1">
+          <button
+            onClick={() => setPanelOpen((o) => !o)}
+            className="mt-1 p-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 text-xs"
+            title={panelOpen ? 'Hide reconciliation' : 'Show reconciliation'}
+          >
+            {panelOpen ? '→' : '←'}
+          </button>
+          {panelOpen && (
+            <ReconciliationPanel
+              shift={shift}
+              shiftId={shiftId}
+              isClosed={isClosed}
+              instantSale={totalAmount}
+              canCommit={true}
+              onCommit={() => navigate(`/shifts/${shiftId}/commit`)}
+            />
+          )}
+        </div>
       </div>
     </div>
   )

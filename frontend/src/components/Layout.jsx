@@ -29,7 +29,7 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+        <div className="w-full px-6 h-14 flex items-center justify-between">
           <Link to="/shifts" className="font-bold text-blue-600 text-base tracking-tight">
             Pack Lottery
           </Link>
@@ -74,7 +74,7 @@ export default function Layout({ children }) {
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6">{children}</main>
+      <main className="flex-1 w-full px-6 py-6">{children}</main>
     </div>
   )
 }
