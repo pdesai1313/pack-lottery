@@ -14,6 +14,7 @@ import Reports from './pages/Reports'
 import Users from './pages/Users'
 import Grocery from './pages/Grocery'
 import AuditLog from './pages/AuditLog'
+import Dashboard from './pages/Dashboard'
 
 function AuthRedirect() {
   const { user, isLoading } = useAuth()
@@ -27,6 +28,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<AuthRedirect />} />
 
+      <Route path="/dashboard" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
       <Route path="/shifts" element={<ProtectedRoute><Layout><Shifts /></Layout></ProtectedRoute>} />
       <Route path="/shifts/:id/scan" element={<ProtectedRoute><Layout><LiveScan /></Layout></ProtectedRoute>} />
       <Route path="/shifts/:id/commit" element={<ProtectedRoute roles={['ADMIN','REVIEWER']}><Layout><CommitShift /></Layout></ProtectedRoute>} />

@@ -2,6 +2,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const NAV = [
+  { label: 'Dashboard', to: '/dashboard', roles: ['ADMIN', 'REVIEWER', 'OPERATOR'] },
   { label: 'Shifts', to: '/shifts', roles: ['ADMIN', 'REVIEWER', 'OPERATOR'] },
   { label: 'Daily Summary', to: '/daily', roles: ['ADMIN', 'REVIEWER', 'OPERATOR'] },
   { label: 'Packs', to: '/packs', roles: ['ADMIN'] },
