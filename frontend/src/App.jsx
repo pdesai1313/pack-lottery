@@ -11,6 +11,7 @@ import Exceptions from './pages/Exceptions'
 import PackManagement from './pages/PackManagement'
 import Settings from './pages/Settings'
 import Reports from './pages/Reports'
+import Users from './pages/Users'
 
 function AuthRedirect() {
   const { user, isLoading } = useAuth()
@@ -32,6 +33,7 @@ export default function App() {
       <Route path="/packs" element={<ProtectedRoute roles={['ADMIN']}><Layout><PackManagement /></Layout></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute roles={['ADMIN']}><Layout><Settings /></Layout></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute roles={['ADMIN','REVIEWER']}><Layout><Reports /></Layout></ProtectedRoute>} />
+      <Route path="/users" element={<ProtectedRoute roles={['ADMIN']}><Layout><Users /></Layout></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
