@@ -48,13 +48,25 @@ router.get('/', verifyAccessToken, async (req, res) => {
   const dayMap = {}
   for (const s of shifts) {
     if (!dayMap[s.date]) dayMap[s.date] = {
-      date: s.date, shiftTags: [],
+      date: s.date, shifts: [],
       instantSale: 0, units: 0,
       onlineSale: 0, atm: 0, onlineCash: 0, instantCash: 0, actualCOH: null, hasRecon: false,
     }
     const d = dayMap[s.date]
-    d.shiftTags.push(s.shiftTag)
-    for (const sale of s.packSales) { d.instantSale += sale.amount; d.units += sale.unitsSold }
+    const shiftInstant = s.packSales.reduce((sum, sale) => sum + sale.amount, 0)
+    const shiftUnits   = s.packSales.reduce((sum, sale) => sum + sale.unitsSold, 0)
+    d.shifts.push({
+      id: s.id,
+      shiftTag: s.shiftTag,
+      instantSale: parseFloat(shiftInstant.toFixed(2)),
+      units: shiftUnits,
+      totalSale: parseFloat((shiftInstant + (s.onlineSale || 0)).toFixed(2)),
+      overallTotal: s.actualCashOnHand != null && s.onlineSale != null
+        ? parseFloat((s.actualCashOnHand - (shiftInstant + s.onlineSale - (s.atm || 0) - ((s.onlineCash || 0) + (s.instantCash || 0)))).toFixed(2))
+        : null,
+    })
+    d.instantSale += shiftInstant
+    d.units       += shiftUnits
     if (s.onlineSale != null)      { d.onlineSale  += s.onlineSale;      d.hasRecon = true }
     if (s.atm != null)               d.atm         += s.atm
     if (s.onlineCash != null)        d.onlineCash  += s.onlineCash
@@ -69,7 +81,7 @@ router.get('/', verifyAccessToken, async (req, res) => {
     const overall = d.hasRecon && d.actualCOH != null ? parseFloat((d.actualCOH - exp).toFixed(2)) : null
     return {
       date: d.date,
-      shiftTags: d.shiftTags,
+      shifts: d.shifts,
       instantSale: parseFloat(d.instantSale.toFixed(2)),
       units: d.units,
       totalSale: ts,

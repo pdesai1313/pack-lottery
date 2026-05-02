@@ -51,6 +51,7 @@ function SummaryCard({ label, value, sub, highlight }) {
 
 export default function Reports() {
   const [period, setPeriod] = useState('month')
+  const [expanded, setExpanded] = useState({})
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
 
@@ -165,24 +166,55 @@ export default function Reports() {
                     {data.byDay.length === 0 && (
                       <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400 text-xs">No data</td></tr>
                     )}
-                    {data.byDay.map((d) => (
-                      <tr key={d.date} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 text-xs font-medium">{d.date}</td>
-                        <td className="px-3 py-2 text-xs text-gray-500">
-                          {d.shiftTags.map((t) => t.replace('_', ' ')).join(', ')}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.instantSale)}</td>
-                        <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.totalSale)}</td>
-                        <td className={`px-3 py-2 text-xs text-right font-mono font-semibold ${
-                          d.overallTotal == null ? 'text-gray-300'
-                          : d.overallTotal >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {d.overallTotal != null
-                            ? (d.overallTotal >= 0 ? `+${fmt(d.overallTotal)}` : fmt(d.overallTotal))
-                            : '—'}
-                        </td>
-                      </tr>
-                    ))}
+                    {data.byDay.map((d) => {
+                      const isOpen = !!expanded[d.date]
+                      const multiShift = d.shifts.length > 1
+                      return (
+                        <>
+                          <tr
+                            key={d.date}
+                            className={`${multiShift ? 'cursor-pointer hover:bg-blue-50' : 'hover:bg-gray-50'}`}
+                            onClick={() => multiShift && setExpanded((p) => ({ ...p, [d.date]: !p[d.date] }))}
+                          >
+                            <td className="px-3 py-2 text-xs font-medium">
+                              <span className="flex items-center gap-1">
+                                {multiShift && <span className="text-gray-400">{isOpen ? '▾' : '▸'}</span>}
+                                {d.date}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-500">
+                              {d.shifts.map((s) => s.shiftTag).join(', ')}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.instantSale)}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.totalSale)}</td>
+                            <td className={`px-3 py-2 text-xs text-right font-mono font-semibold ${
+                              d.overallTotal == null ? 'text-gray-300'
+                              : d.overallTotal >= 0 ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {d.overallTotal != null
+                                ? (d.overallTotal >= 0 ? `+${fmt(d.overallTotal)}` : fmt(d.overallTotal))
+                                : '—'}
+                            </td>
+                          </tr>
+                          {isOpen && d.shifts.map((shift) => (
+                            <tr key={shift.id} className="bg-blue-50">
+                              <td className="pl-7 pr-3 py-1.5 text-xs text-gray-500">└─ {shift.shiftTag}</td>
+                              <td className="px-3 py-1.5 text-xs text-gray-400">{shift.units} units</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{fmt(shift.instantSale)}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{fmt(shift.totalSale)}</td>
+                              <td className={`px-3 py-1.5 text-xs text-right font-mono font-semibold ${
+                                shift.overallTotal == null ? 'text-gray-300'
+                                : shift.overallTotal >= 0 ? 'text-green-600' : 'text-red-600'
+                              }`}>
+                                {shift.overallTotal != null
+                                  ? (shift.overallTotal >= 0 ? `+${fmt(shift.overallTotal)}` : fmt(shift.overallTotal))
+                                  : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </>
+                      )
+                    })}
                   </tbody>
                   {data.byDay.length > 0 && (
                     <tfoot className="bg-gray-50 border-t-2 border-gray-200">
