@@ -46,8 +46,40 @@ router.put('/:id', verifyAccessToken, requireRole('ADMIN'), async (req, res) => 
   const result = schema.safeParse(req.body)
   if (!result.success) return res.status(400).json({ error: result.error.flatten() })
 
-  const pack = await prisma.pack.update({ where: { id }, data: result.data })
+  const pack = await prisma.$transaction(async (tx) => {
+    const updated = await tx.pack.update({ where: { id }, data: result.data })
+
+    // When deactivating: remove from all open (non-committed) shifts
+    if (result.data.active === false) {
+      const openShifts = await tx.shift.findMany({ where: { status: 'OPEN' }, select: { id: true } })
+      if (openShifts.length > 0) {
+        await tx.packState.deleteMany({
+          where: { packId: id, shiftId: { in: openShifts.map((s) => s.id) } },
+        })
+      }
+    }
+
+    return updated
+  })
+
   res.json(pack)
+})
+
+router.delete('/:id', verifyAccessToken, requireRole('ADMIN'), async (req, res) => {
+  const id = parseInt(req.params.id, 10)
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid pack ID' })
+
+  const pack = await prisma.pack.findUnique({ where: { id } })
+  if (!pack) return res.status(404).json({ error: 'Pack not found' })
+
+  await prisma.$transaction(async (tx) => {
+    await tx.packState.deleteMany({ where: { packId: id } })
+    await tx.packSale.deleteMany({ where: { packId: id } })
+    await tx.scannerState.deleteMany({ where: { packId: id } })
+    await tx.pack.delete({ where: { id } })
+  })
+
+  res.json({ status: 'ok' })
 })
 
 module.exports = router

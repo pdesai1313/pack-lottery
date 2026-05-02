@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getPacks, createPack, updatePack } from '../api/packs'
+import { getPacks, createPack, updatePack, deletePack } from '../api/packs'
 
 function PackForm({ initial, onSave, onCancel, loading, error }) {
   const [form, setForm] = useState(initial || { packId: '', packSize: '', ticketValue: '', gameName: '', scannerNumber: '' })
@@ -68,9 +68,35 @@ function PackModal({ title, initial, onSave, onClose, loading, error }) {
   )
 }
 
+function DeleteConfirmModal({ pack, onConfirm, onClose, isPending }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
+        <h3 className="font-bold text-lg mb-1">Delete {pack.packId}?</h3>
+        <p className="text-gray-500 text-sm mb-5">
+          This will permanently remove the pack and all its scan history from every shift. This cannot be undone.
+        </p>
+        <div className="flex gap-3">
+          <button className="btn-secondary flex-1" onClick={onClose} disabled={isPending}>Cancel</button>
+          <button className="btn-danger flex-1" onClick={onConfirm} disabled={isPending}>
+            {isPending ? 'Deleting…' : 'Yes, Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function PackManagement() {
   const qc = useQueryClient()
-  const [modal, setModal] = useState(null) // null | 'create' | pack object
+  const [modal, setModal] = useState(null)       // null | 'create' | pack object
+  const [confirmDelete, setConfirmDelete] = useState(null) // null | pack object
   const [formError, setFormError] = useState('')
 
   const { data: packs = [], isLoading } = useQuery({ queryKey: ['packs'], queryFn: getPacks })
@@ -87,19 +113,23 @@ export default function PackManagement() {
     onError: (e) => setFormError(e.response?.data?.error || 'Failed to update pack'),
   })
 
-  function openCreate() { setModal('create'); setFormError('') }
-  function openEdit(pack) { setModal(pack); setFormError('') }
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, active }) => updatePack(id, { active }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['packs'] }),
+  })
 
-  async function toggleActive(pack) {
-    await updatePack(pack.id, { active: !pack.active })
-    qc.invalidateQueries({ queryKey: ['packs'] })
-  }
+  const deleteMutation = useMutation({
+    mutationFn: (id) => deletePack(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['packs'] }); setConfirmDelete(null) },
+  })
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Pack Management</h2>
-        <button className="btn-primary btn-sm" onClick={openCreate}>+ Add Pack</button>
+        <button className="btn-primary btn-sm" onClick={() => { setModal('create'); setFormError('') }}>
+          + Add Pack
+        </button>
       </div>
 
       {modal && (
@@ -114,6 +144,15 @@ export default function PackManagement() {
           onClose={() => setModal(null)}
           loading={createMutation.isPending || updateMutation.isPending}
           error={formError}
+        />
+      )}
+
+      {confirmDelete && (
+        <DeleteConfirmModal
+          pack={confirmDelete}
+          onConfirm={() => deleteMutation.mutate(confirmDelete.id)}
+          onClose={() => setConfirmDelete(null)}
+          isPending={deleteMutation.isPending}
         />
       )}
 
@@ -145,12 +184,24 @@ export default function PackManagement() {
                   </td>
                   <td className="px-4 py-2">
                     <div className="flex gap-1">
-                      <button className="btn-secondary btn-sm" onClick={() => openEdit(p)}>Edit</button>
                       <button
-                        className={`btn-sm ${p.active ? 'btn-danger' : 'btn-secondary'}`}
-                        onClick={() => toggleActive(p)}
+                        className="btn-secondary btn-sm"
+                        onClick={() => { setModal(p); setFormError('') }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className={`btn-sm ${p.active ? 'btn-secondary' : 'btn-secondary'}`}
+                        onClick={() => toggleMutation.mutate({ id: p.id, active: !p.active })}
+                        disabled={toggleMutation.isPending}
                       >
                         {p.active ? 'Deactivate' : 'Activate'}
+                      </button>
+                      <button
+                        className="btn-sm btn-danger"
+                        onClick={() => setConfirmDelete(p)}
+                      >
+                        Delete
                       </button>
                     </div>
                   </td>
