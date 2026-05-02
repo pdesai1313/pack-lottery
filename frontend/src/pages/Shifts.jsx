@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { getShifts, createShift } from '../api/shifts'
+import { getShifts, createShift, deleteShift } from '../api/shifts'
 import { useAuth } from '../context/AuthContext'
 
 const STATUS_COLORS = { OPEN: 'badge-blue', CLOSED: 'badge-gray' }
@@ -140,11 +140,22 @@ function CreateShiftModal({ onClose, closedShifts }) {
 export default function Shifts() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   const { data: shifts = [], isLoading } = useQuery({ queryKey: ['shifts'], queryFn: getShifts })
 
   const closedShifts = shifts.filter((s) => s.status === 'CLOSED')
+  const isAdmin = user?.role === 'ADMIN'
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteShift,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shifts'] })
+      setConfirmDeleteId(null)
+    },
+  })
 
   return (
     <div>
@@ -162,6 +173,34 @@ export default function Shifts() {
           onClose={() => setShowCreate(false)}
           closedShifts={closedShifts}
         />
+      )}
+
+      {/* Delete confirmation modal */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
+            <h3 className="font-bold text-lg mb-1">Delete this shift?</h3>
+            <p className="text-gray-500 text-sm mb-5">
+              All scan data and pack states for this shift will be permanently removed. This cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                className="btn-secondary flex-1"
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={deleteMutation.isPending}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-danger flex-1"
+                onClick={() => deleteMutation.mutate(confirmDeleteId)}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? 'Deleting…' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {isLoading ? (
@@ -195,6 +234,14 @@ export default function Shifts() {
                 {s.status === 'CLOSED' && (
                   <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${s.id}/commit`)}>
                     View
+                  </button>
+                )}
+                {isAdmin && (
+                  <button
+                    className="btn-sm btn-danger"
+                    onClick={() => setConfirmDeleteId(s.id)}
+                  >
+                    Delete
                   </button>
                 )}
               </div>

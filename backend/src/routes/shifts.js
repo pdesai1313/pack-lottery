@@ -134,18 +134,45 @@ router.post('/', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER']), async (r
   res.status(201).json(formatShift(shift))
 })
 
-// ── Get shift packstates ───────────────────────────────────────────────────────
+// ── Get shift packstates (auto-syncs new active packs for OPEN shifts) ────────
 
 router.get('/:id/packstates', verifyAccessToken, async (req, res) => {
   const id = parseInt(req.params.id, 10)
-  const shift = await prisma.shift.findUnique({
+
+  const fetchShift = () => prisma.shift.findUnique({
     where: { id },
     include: {
       packStates: { include: { pack: { include: { scannerState: true } } }, orderBy: { pack: { packId: 'asc' } } },
       createdBy: { select: { name: true, email: true } },
     },
   })
+
+  let shift = await fetchShift()
   if (!shift) return res.status(404).json({ error: 'Shift not found' })
+
+  if (shift.status === 'OPEN') {
+    const existingPackIds = new Set(shift.packStates.map((ps) => ps.packId))
+    const allActive = await prisma.pack.findMany({ where: { active: true }, orderBy: { packId: 'asc' } })
+    const missing = allActive.filter((p) => !existingPackIds.has(p.id))
+
+    if (missing.length > 0) {
+      for (const pack of missing) {
+        const startTicket = await resolveStartTicket({
+          startSource: 'previous_day',
+          manualShiftId: null,
+          packId: pack.id,
+          packSize: pack.packSize,
+          date: shift.date,
+          prisma,
+        })
+        await prisma.packState.create({
+          data: { packId: pack.id, shiftId: shift.id, startTicket: startTicket ?? null },
+        })
+      }
+      shift = await fetchShift()
+    }
+  }
+
   res.json(formatShift(shift))
 })
 
@@ -379,6 +406,23 @@ router.get('/:id/export', verifyAccessToken, async (req, res) => {
   res.setHeader('Content-Type', 'text/csv')
   res.setHeader('Content-Disposition', `attachment; filename="shift-${shiftId}-${shift.date}-${shift.shiftTag}.csv"`)
   res.send(csv)
+})
+
+// ── Delete shift ──────────────────────────────────────────────────────────────
+
+router.delete('/:id', verifyAccessToken, requireRole(['ADMIN']), async (req, res) => {
+  const shiftId = parseInt(req.params.id, 10)
+
+  const shift = await prisma.shift.findUnique({ where: { id: shiftId } })
+  if (!shift) return res.status(404).json({ error: 'Shift not found' })
+
+  await prisma.$transaction(async (tx) => {
+    await tx.packState.deleteMany({ where: { shiftId } })
+    await tx.packSale.deleteMany({ where: { shiftId } })
+    await tx.shift.delete({ where: { id: shiftId } })
+  })
+
+  res.json({ status: 'ok' })
 })
 
 module.exports = router

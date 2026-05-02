@@ -14,3 +14,4 @@ export const getDailySummary = (date) => api.get(`/shifts/daily?date=${date}`).t
 export const updateReconciliation = (shiftId, data) =>
   api.put(`/shifts/${shiftId}/reconciliation`, data).then((r) => r.data)
 export const exportCsv = (shiftId) => `/api/shifts/${shiftId}/export?format=csv`
+export const deleteShift = (shiftId) => api.delete(`/shifts/${shiftId}`).then((r) => r.data)
