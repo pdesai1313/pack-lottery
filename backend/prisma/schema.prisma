@@ -24,6 +24,7 @@ model User {
 
   shifts         Shift[]        @relation("ShiftCreatedBy")
   groceryEntries GroceryEntry[] @relation("GroceryPreparedBy")
+  auditLogs      AuditLog[]     @relation("AuditLogUser")
 
   @@map("users")
 }
@@ -146,4 +147,18 @@ model GroceryEntry {
   preparedBy User @relation("GroceryPreparedBy", fields: [preparedById], references: [id])
 
   @@map("grocery_entries")
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  action      String
+  entity      String
+  entityId    String   @map("entity_id")
+  description String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation("AuditLogUser", fields: [userId], references: [id])
+
+  @@map("audit_logs")
 }

@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs')
 const { z } = require('zod')
 const { PrismaClient } = require('@prisma/client')
 const { verifyAccessToken, requireRole } = require('../middleware/auth')
+const { audit } = require('../lib/audit')
 
 const router = express.Router()
 const prisma = new PrismaClient()
@@ -35,6 +36,7 @@ router.post('/', verifyAccessToken, requireRole('ADMIN'), async (req, res) => {
     data: { name, email, passwordHash, role },
     select: { id: true, name: true, email: true, role: true, active: true, createdAt: true },
   })
+  await audit(prisma, req.user.id, 'CREATE', 'USER', user.id, `Created user ${user.name} (${user.email}) — role: ${user.role}`)
   res.status(201).json(user)
 })
 
@@ -60,6 +62,14 @@ router.put('/:id', verifyAccessToken, requireRole('ADMIN'), async (req, res) => 
     data,
     select: { id: true, name: true, email: true, role: true, active: true },
   })
+  const changes = []
+  if (result.data.role)          changes.push(`role → ${result.data.role}`)
+  if (result.data.active === false) changes.push('deactivated')
+  if (result.data.active === true)  changes.push('activated')
+  if (result.data.name)          changes.push(`name → ${result.data.name}`)
+  if (result.data.passwordHash)  changes.push('password changed')
+  const desc = `Updated user ${user.name}${changes.length ? ': ' + changes.join(', ') : ''}`
+  await audit(prisma, req.user.id, 'UPDATE', 'USER', id, desc)
   res.json(user)
 })
 

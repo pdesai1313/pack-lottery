@@ -12,6 +12,7 @@ const userRoutes = require('./routes/users')
 const settingsRoutes = require('./routes/settings')
 const reportsRoutes = require('./routes/reports')
 const groceryRoutes = require('./routes/grocery')
+const auditRoutes   = require('./routes/audit')
 
 const app = express()
 const prisma = new PrismaClient()
@@ -30,6 +31,7 @@ app.use('/api/users', userRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/reports', reportsRoutes)
 app.use('/api/grocery', groceryRoutes)
+app.use('/api/audit',   auditRoutes)
 
 app.use((err, req, res, next) => {
   console.error(err)

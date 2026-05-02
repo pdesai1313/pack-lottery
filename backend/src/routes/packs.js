@@ -2,6 +2,7 @@ const express = require('express')
 const { z } = require('zod')
 const { PrismaClient } = require('@prisma/client')
 const { verifyAccessToken, requireRole } = require('../middleware/auth')
+const { audit } = require('../lib/audit')
 
 const router = express.Router()
 const prisma = new PrismaClient()
@@ -35,6 +36,7 @@ router.post('/', verifyAccessToken, requireRole('ADMIN'), async (req, res) => {
     return created
   })
 
+  await audit(prisma, req.user.id, 'CREATE', 'PACK', pack.id, `Created pack ${pack.packId}${pack.gameName ? ` (${pack.gameName})` : ''}`)
   res.status(201).json(pack)
 })
 
@@ -62,6 +64,12 @@ router.put('/:id', verifyAccessToken, requireRole('ADMIN'), async (req, res) => 
     return updated
   })
 
+  const deactivated = result.data.active === false
+  const activated = result.data.active === true
+  const desc = deactivated ? `Deactivated pack ${pack.packId}`
+    : activated ? `Activated pack ${pack.packId}`
+    : `Updated pack ${pack.packId}`
+  await audit(prisma, req.user.id, 'UPDATE', 'PACK', id, desc)
   res.json(pack)
 })
 
@@ -78,7 +86,7 @@ router.delete('/:id', verifyAccessToken, requireRole('ADMIN'), async (req, res) 
     await tx.scannerState.deleteMany({ where: { packId: id } })
     await tx.pack.delete({ where: { id } })
   })
-
+  await audit(prisma, req.user.id, 'DELETE', 'PACK', id, `Deleted pack ${pack.packId}`)
   res.json({ status: 'ok' })
 })
 

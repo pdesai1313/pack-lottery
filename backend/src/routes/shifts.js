@@ -4,6 +4,7 @@ const { PrismaClient } = require('@prisma/client')
 const { stringify } = require('csv-stringify/sync')
 const { verifyAccessToken, requireRole } = require('../middleware/auth')
 const { computeDelta, resolveStartTicket, parseFlags, serializeFlags, isErrorFlag } = require('../lib/delta')
+const { audit } = require('../lib/audit')
 
 const router = express.Router()
 const prisma = new PrismaClient()
@@ -131,6 +132,7 @@ router.post('/', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER']), async (r
     })
   })
 
+  await audit(prisma, req.user.id, 'CREATE', 'SHIFT', shift.id, `Created shift ${shift.date} — ${shift.shiftTag}`)
   res.status(201).json(formatShift(shift))
 })
 
@@ -278,6 +280,7 @@ router.put('/:id/reconciliation', verifyAccessToken, async (req, res) => {
     where: { id: shiftId },
     data: result.data,
   })
+  await audit(prisma, req.user.id, 'UPDATE', 'SHIFT', shiftId, `Updated reconciliation for shift ${shift.date} — ${shift.shiftTag}`)
   res.json(updated)
 })
 
@@ -370,6 +373,8 @@ router.post('/:id/commit', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER'])
     return sales
   }, { timeout: 60000 })
 
+  const totalAmount = committed.reduce((sum, s) => sum + s.amount, 0)
+  await audit(prisma, req.user.id, 'COMMIT', 'SHIFT', shiftId, `Committed shift ${shift.date} — ${shift.shiftTag} (${committed.length} packs, $${totalAmount.toFixed(2)})`)
   res.json({ status: 'ok', committedAt: new Date().toISOString(), salesCount: committed.length })
 })
 
@@ -421,7 +426,7 @@ router.delete('/:id', verifyAccessToken, requireRole(['ADMIN']), async (req, res
     await tx.packSale.deleteMany({ where: { shiftId } })
     await tx.shift.delete({ where: { id: shiftId } })
   })
-
+  await audit(prisma, req.user.id, 'DELETE', 'SHIFT', shiftId, `Deleted shift ${shift.date} — ${shift.shiftTag}`)
   res.json({ status: 'ok' })
 })
 
