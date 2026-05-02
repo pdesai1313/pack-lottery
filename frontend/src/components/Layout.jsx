@@ -7,6 +7,7 @@ const NAV = [
   { label: 'Packs', to: '/packs', roles: ['ADMIN'] },
   { label: 'Users', to: '/users', roles: ['ADMIN'] },
   { label: 'Reports', to: '/reports', roles: ['ADMIN', 'REVIEWER'] },
+  { label: 'Grocery', to: '/grocery', roles: ['ADMIN', 'REVIEWER', 'OPERATOR'] },
   { label: 'Settings', to: '/settings', roles: ['ADMIN'] },
 ]
 

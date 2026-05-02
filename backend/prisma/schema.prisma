@@ -22,7 +22,8 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  shifts Shift[] @relation("ShiftCreatedBy")
+  shifts         Shift[]        @relation("ShiftCreatedBy")
+  groceryEntries GroceryEntry[] @relation("GroceryPreparedBy")
 
   @@map("users")
 }
@@ -126,4 +127,23 @@ model AppSettings {
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("app_settings")
+}
+
+model GroceryEntry {
+  id               Int      @id @default(autoincrement())
+  date             String
+  storeName        String   @default("") @map("store_name")
+  preparedById     Int      @map("prepared_by_id")
+  creditDebit      Float    @default(0) @map("credit_debit")
+  ebt              Float    @default(0)
+  cashSales        Float    @default(0) @map("cash_sales")
+  openingCash      Float    @default(0) @map("opening_cash")
+  actualCashOnHand Float    @default(0) @map("actual_cash_on_hand")
+  notes            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  preparedBy User @relation("GroceryPreparedBy", fields: [preparedById], references: [id])
+
+  @@map("grocery_entries")
 }

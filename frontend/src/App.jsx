@@ -12,6 +12,7 @@ import PackManagement from './pages/PackManagement'
 import Settings from './pages/Settings'
 import Reports from './pages/Reports'
 import Users from './pages/Users'
+import Grocery from './pages/Grocery'
 
 function AuthRedirect() {
   const { user, isLoading } = useAuth()
@@ -34,6 +35,7 @@ export default function App() {
       <Route path="/settings" element={<ProtectedRoute roles={['ADMIN']}><Layout><Settings /></Layout></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute roles={['ADMIN','REVIEWER']}><Layout><Reports /></Layout></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute roles={['ADMIN']}><Layout><Users /></Layout></ProtectedRoute>} />
+      <Route path="/grocery" element={<ProtectedRoute roles={['ADMIN','REVIEWER','OPERATOR']}><Layout><Grocery /></Layout></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
