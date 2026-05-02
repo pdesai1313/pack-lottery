@@ -160,8 +160,8 @@ function ReconciliationPanel({ shift, shiftId, isClosed, instantSale, onCommit, 
     : '—'
 
   return (
-    <div className="w-72 flex-shrink-0">
-      <div className="card sticky top-4 p-0 overflow-hidden">
+    <div className="w-80 flex-shrink-0">
+      <div className="card sticky top-20 p-0 overflow-hidden">
 
         {/* Panel header */}
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
@@ -437,6 +437,7 @@ export default function LiveScan() {
 
         {/* Scan table */}
         <div className="flex-1 min-w-0 card p-0 overflow-hidden">
+          <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 300px)' }}>
           <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
             <thead className="bg-gray-50 border-b-2 border-gray-200 sticky top-0 z-10">
               <tr>
@@ -447,8 +448,8 @@ export default function LiveScan() {
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Size</th>
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Price</th>
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Start</th>
-                <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 bg-blue-50/50">Scan</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">End</th>
+                <th style={{ width: '152px' }} className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 bg-blue-50/50">Scan</th>
+                <th style={{ width: '52px' }} className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">End</th>
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Units</th>
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Amount</th>
                 <th className="text-center px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Mode</th>
@@ -694,7 +695,7 @@ export default function LiveScan() {
             </tbody>
 
             {scannedCount > 0 && filter === 'all' && !search && (
-              <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+              <tfoot className="bg-gray-50 border-t-2 border-gray-200 sticky bottom-0 z-10">
                 <tr>
                   <td colSpan={8} className="px-4 py-2.5 text-xs font-semibold text-gray-500 text-right">
                     TOTAL — {scannedCount}/{packStates.length} scanned
@@ -706,6 +707,7 @@ export default function LiveScan() {
               </tfoot>
             )}
           </table>
+          </div>
         </div>
 
         {/* Reconciliation panel (collapsible) */}
