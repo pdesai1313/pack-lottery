@@ -16,7 +16,7 @@ function getPeriodDates(period) {
   if (period === 'week') {
     const d = new Date(t)
     const day = d.getDay()
-    const diff = day === 0 ? -6 : 1 - day // Monday
+    const diff = day === 0 ? -6 : 1 - day
     d.setDate(d.getDate() + diff)
     return { from: iso(d), to: today() }
   }
@@ -41,13 +41,29 @@ function SummaryCard({ label, value, sub, highlight }) {
     : highlight >= 0 ? 'border-green-200' : 'border-red-200'
 
   return (
-    <div className={`rounded-xl border ${border} ${bg} px-5 py-4`}>
+    <div className={`rounded-xl border ${border} ${bg} px-4 py-3`}>
       <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+      <p className={`text-xl font-bold ${color}`}>{value}</p>
+      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
     </div>
   )
 }
+
+function OverallCell({ value }) {
+  if (value == null) return <span className="text-gray-300">—</span>
+  const pos = value >= 0
+  return (
+    <span className={pos ? 'text-green-600' : 'text-red-600'}>
+      {pos ? `+${fmt(value)}` : fmt(value)}
+    </span>
+  )
+}
+
+const TH = ({ children, right }) => (
+  <th className={`px-3 py-2 text-xs font-medium text-gray-500 whitespace-nowrap ${right ? 'text-right' : 'text-left'}`}>
+    {children}
+  </th>
+)
 
 export default function Reports() {
   const [period, setPeriod] = useState('month')
@@ -118,23 +134,28 @@ export default function Reports() {
 
       {s && (
         <>
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-            <SummaryCard
-              label="Instant Sale"
-              value={fmt(s.instantSale)}
-              sub={`${s.totalUnits} units · ${s.shiftsCount} shifts`}
-            />
-            <SummaryCard
-              label="Total Sale"
-              value={fmt(s.totalSale)}
-              sub={s.onlineSale > 0 ? `Online: ${fmt(s.onlineSale)}` : 'No online sale recorded'}
-            />
-            <SummaryCard
-              label="Expected COH"
-              value={fmt(s.expectedCOH)}
-              sub={s.atm > 0 ? `ATM: ${fmt(s.atm)}` : undefined}
-            />
+          {/* Summary — Sales */}
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sales</p>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <SummaryCard label="Instant Sale" value={fmt(s.instantSale)} sub={`${s.totalUnits} units · ${s.shiftsCount} shifts`} />
+            <SummaryCard label="Online Sale"  value={fmt(s.onlineSale)} sub={s.onlineSale > 0 ? undefined : 'No online recorded'} />
+            <SummaryCard label="Total Sale"   value={fmt(s.totalSale)} />
+          </div>
+
+          {/* Summary — Cash */}
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Cash</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <SummaryCard label="ATM"          value={fmt(s.atm)} />
+            <SummaryCard label="Online Cash"  value={fmt(s.onlineCash)} />
+            <SummaryCard label="Instant Cash" value={fmt(s.instantCash)} />
+            <SummaryCard label="Total Cash"   value={fmt(s.totalCash)} />
+          </div>
+
+          {/* Summary — Reconciliation */}
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Reconciliation</p>
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <SummaryCard label="Expected COH"  value={fmt(s.expectedCOH)} sub={s.atm > 0 ? `ATM: ${fmt(s.atm)}` : undefined} />
+            <SummaryCard label="Actual COH"    value={fmt(s.actualCOH)} sub={s.actualCOH == null ? 'No data' : undefined} />
             <SummaryCard
               label="Overall Total"
               value={s.overallTotal != null ? (s.overallTotal >= 0 ? `+${fmt(s.overallTotal)}` : fmt(s.overallTotal)) : '—'}
@@ -144,7 +165,7 @@ export default function Reports() {
           </div>
 
           {/* Tables row */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
 
             {/* Daily breakdown */}
             <div className="card p-0">
@@ -155,16 +176,23 @@ export default function Reports() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Date</th>
-                      <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Shifts</th>
-                      <th className="text-right px-3 py-2 text-xs font-medium text-gray-500">Instant Sale</th>
-                      <th className="text-right px-3 py-2 text-xs font-medium text-gray-500">Total Sale</th>
-                      <th className="text-right px-3 py-2 text-xs font-medium text-gray-500">Overall</th>
+                      <TH>Date</TH>
+                      <TH>Shifts</TH>
+                      <TH right>Instant Sale</TH>
+                      <TH right>Online Sale</TH>
+                      <TH right>Total Sale</TH>
+                      <TH right>ATM</TH>
+                      <TH right>Online Cash</TH>
+                      <TH right>Instant Cash</TH>
+                      <TH right>Total Cash</TH>
+                      <TH right>Exp. COH</TH>
+                      <TH right>Act. COH</TH>
+                      <TH right>Overall</TH>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {data.byDay.length === 0 && (
-                      <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400 text-xs">No data</td></tr>
+                      <tr><td colSpan={12} className="px-3 py-4 text-center text-gray-400 text-xs">No data</td></tr>
                     )}
                     {data.byDay.map((d) => {
                       const isOpen = !!expanded[d.date]
@@ -176,39 +204,43 @@ export default function Reports() {
                             className={`${multiShift ? 'cursor-pointer hover:bg-blue-50' : 'hover:bg-gray-50'}`}
                             onClick={() => multiShift && setExpanded((p) => ({ ...p, [d.date]: !p[d.date] }))}
                           >
-                            <td className="px-3 py-2 text-xs font-medium">
+                            <td className="px-3 py-2 text-xs font-medium whitespace-nowrap">
                               <span className="flex items-center gap-1">
                                 {multiShift && <span className="text-gray-400">{isOpen ? '▾' : '▸'}</span>}
                                 {d.date}
                               </span>
                             </td>
-                            <td className="px-3 py-2 text-xs text-gray-500">
+                            <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
                               {d.shifts.map((s) => s.shiftTag).join(', ')}
                             </td>
                             <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.instantSale)}</td>
-                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.totalSale)}</td>
-                            <td className={`px-3 py-2 text-xs text-right font-mono font-semibold ${
-                              d.overallTotal == null ? 'text-gray-300'
-                              : d.overallTotal >= 0 ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                              {d.overallTotal != null
-                                ? (d.overallTotal >= 0 ? `+${fmt(d.overallTotal)}` : fmt(d.overallTotal))
-                                : '—'}
+                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.onlineSale)}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono font-semibold">{fmt(d.totalSale)}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.atm)}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.onlineCash)}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.instantCash)}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.totalCash)}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono">{fmt(d.expectedCOH)}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono">{d.actualCOH != null ? fmt(d.actualCOH) : '—'}</td>
+                            <td className="px-3 py-2 text-xs text-right font-mono font-semibold">
+                              <OverallCell value={d.overallTotal} />
                             </td>
                           </tr>
                           {isOpen && d.shifts.map((shift) => (
                             <tr key={shift.id} className="bg-blue-50">
-                              <td className="pl-7 pr-3 py-1.5 text-xs text-gray-500">└─ {shift.shiftTag}</td>
+                              <td className="pl-7 pr-3 py-1.5 text-xs text-gray-500 whitespace-nowrap">└─ {shift.shiftTag}</td>
                               <td className="px-3 py-1.5 text-xs text-gray-400">{shift.units} units</td>
                               <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{fmt(shift.instantSale)}</td>
-                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{fmt(shift.totalSale)}</td>
-                              <td className={`px-3 py-1.5 text-xs text-right font-mono font-semibold ${
-                                shift.overallTotal == null ? 'text-gray-300'
-                                : shift.overallTotal >= 0 ? 'text-green-600' : 'text-red-600'
-                              }`}>
-                                {shift.overallTotal != null
-                                  ? (shift.overallTotal >= 0 ? `+${fmt(shift.overallTotal)}` : fmt(shift.overallTotal))
-                                  : '—'}
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{shift.onlineSale != null ? fmt(shift.onlineSale) : '—'}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono font-semibold text-gray-700">{fmt(shift.totalSale)}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{shift.atm != null ? fmt(shift.atm) : '—'}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{shift.onlineCash != null ? fmt(shift.onlineCash) : '—'}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{shift.instantCash != null ? fmt(shift.instantCash) : '—'}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{shift.totalCash != null ? fmt(shift.totalCash) : '—'}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{shift.expectedCOH != null ? fmt(shift.expectedCOH) : '—'}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono text-gray-700">{shift.actualCOH != null ? fmt(shift.actualCOH) : '—'}</td>
+                              <td className="px-3 py-1.5 text-xs text-right font-mono font-semibold">
+                                <OverallCell value={shift.overallTotal} />
                               </td>
                             </tr>
                           ))}
@@ -221,7 +253,14 @@ export default function Reports() {
                       <tr>
                         <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-gray-600">TOTAL</td>
                         <td className="px-3 py-2 text-xs text-right font-bold font-mono">{fmt(s.instantSale)}</td>
+                        <td className="px-3 py-2 text-xs text-right font-bold font-mono">{fmt(s.onlineSale)}</td>
                         <td className="px-3 py-2 text-xs text-right font-bold font-mono">{fmt(s.totalSale)}</td>
+                        <td className="px-3 py-2 text-xs text-right font-bold font-mono">{fmt(s.atm)}</td>
+                        <td className="px-3 py-2 text-xs text-right font-bold font-mono">{fmt(s.onlineCash)}</td>
+                        <td className="px-3 py-2 text-xs text-right font-bold font-mono">{fmt(s.instantCash)}</td>
+                        <td className="px-3 py-2 text-xs text-right font-bold font-mono">{fmt(s.totalCash)}</td>
+                        <td className="px-3 py-2 text-xs text-right font-bold font-mono">{fmt(s.expectedCOH)}</td>
+                        <td className="px-3 py-2 text-xs text-right font-bold font-mono">{s.actualCOH != null ? fmt(s.actualCOH) : '—'}</td>
                         <td className={`px-3 py-2 text-xs text-right font-bold font-mono ${
                           s.overallTotal == null ? 'text-gray-300'
                           : s.overallTotal >= 0 ? 'text-green-600' : 'text-red-600'

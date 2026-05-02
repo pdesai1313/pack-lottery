@@ -55,15 +55,31 @@ router.get('/', verifyAccessToken, async (req, res) => {
     const d = dayMap[s.date]
     const shiftInstant = s.packSales.reduce((sum, sale) => sum + sale.amount, 0)
     const shiftUnits   = s.packSales.reduce((sum, sale) => sum + sale.unitsSold, 0)
+    const shiftOnline   = s.onlineSale     ?? null
+    const shiftAtm      = s.atm            ?? null
+    const shiftOCash    = s.onlineCash     ?? null
+    const shiftICash    = s.instantCash    ?? null
+    const shiftTCash    = shiftOCash != null || shiftICash != null
+      ? parseFloat(((shiftOCash || 0) + (shiftICash || 0)).toFixed(2)) : null
+    const shiftTS       = parseFloat((shiftInstant + (shiftOnline || 0)).toFixed(2))
+    const shiftExpCOH   = shiftOnline != null
+      ? parseFloat((shiftTS - (shiftAtm || 0) - (shiftTCash || 0)).toFixed(2)) : null
+    const shiftActCOH   = s.actualCashOnHand != null ? parseFloat(s.actualCashOnHand.toFixed(2)) : null
     d.shifts.push({
       id: s.id,
       shiftTag: s.shiftTag,
-      instantSale: parseFloat(shiftInstant.toFixed(2)),
       units: shiftUnits,
-      totalSale: parseFloat((shiftInstant + (s.onlineSale || 0)).toFixed(2)),
-      overallTotal: s.actualCashOnHand != null && s.onlineSale != null
-        ? parseFloat((s.actualCashOnHand - (shiftInstant + s.onlineSale - (s.atm || 0) - ((s.onlineCash || 0) + (s.instantCash || 0)))).toFixed(2))
-        : null,
+      instantSale: parseFloat(shiftInstant.toFixed(2)),
+      onlineSale: shiftOnline != null ? parseFloat(shiftOnline.toFixed(2)) : null,
+      totalSale: shiftTS,
+      atm: shiftAtm != null ? parseFloat(shiftAtm.toFixed(2)) : null,
+      onlineCash: shiftOCash != null ? parseFloat(shiftOCash.toFixed(2)) : null,
+      instantCash: shiftICash != null ? parseFloat(shiftICash.toFixed(2)) : null,
+      totalCash: shiftTCash,
+      expectedCOH: shiftExpCOH,
+      actualCOH: shiftActCOH,
+      overallTotal: shiftActCOH != null && shiftExpCOH != null
+        ? parseFloat((shiftActCOH - shiftExpCOH).toFixed(2)) : null,
     })
     d.instantSale += shiftInstant
     d.units       += shiftUnits
@@ -82,9 +98,14 @@ router.get('/', verifyAccessToken, async (req, res) => {
     return {
       date: d.date,
       shifts: d.shifts,
-      instantSale: parseFloat(d.instantSale.toFixed(2)),
       units: d.units,
+      instantSale: parseFloat(d.instantSale.toFixed(2)),
+      onlineSale: parseFloat(d.onlineSale.toFixed(2)),
       totalSale: ts,
+      atm: parseFloat(d.atm.toFixed(2)),
+      onlineCash: parseFloat(d.onlineCash.toFixed(2)),
+      instantCash: parseFloat(d.instantCash.toFixed(2)),
+      totalCash: tc,
       expectedCOH: exp,
       actualCOH: d.actualCOH != null ? parseFloat(d.actualCOH.toFixed(2)) : null,
       overallTotal: overall,
@@ -113,6 +134,8 @@ router.get('/', verifyAccessToken, async (req, res) => {
       onlineSale: parseFloat(onlineSale.toFixed(2)),
       totalSale,
       atm: parseFloat(atm.toFixed(2)),
+      onlineCash: parseFloat(onlineCash.toFixed(2)),
+      instantCash: parseFloat(instantCash.toFixed(2)),
       totalCash,
       expectedCOH,
       actualCOH: reconCount > 0 ? parseFloat(actualCOH.toFixed(2)) : null,
