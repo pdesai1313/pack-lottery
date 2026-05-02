@@ -368,7 +368,7 @@ router.post('/:id/commit', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER'])
 
     await tx.shift.update({ where: { id: shiftId }, data: { status: 'CLOSED' } })
     return sales
-  })
+  }, { timeout: 60000 })
 
   res.json({ status: 'ok', committedAt: new Date().toISOString(), salesCount: committed.length })
 })
