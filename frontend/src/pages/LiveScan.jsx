@@ -161,7 +161,7 @@ function ReconciliationPanel({ shift, shiftId, isClosed, instantSale, onCommit, 
     : '—'
 
   return (
-    <div className="w-80 flex-shrink-0">
+    <div className="w-96 flex-shrink-0">
       <div className="card sticky top-20 p-0 overflow-hidden">
 
         {/* Panel header */}
@@ -452,7 +452,7 @@ export default function LiveScan() {
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Units</th>
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Amount</th>
                 <th className="text-center px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Mode</th>
-                <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Flags</th>
+                <th style={{ width: '110px' }} className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">Flags</th>
               </tr>
             </thead>
 
@@ -680,7 +680,7 @@ export default function LiveScan() {
                     </td>
 
                     {/* Flags */}
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-2.5 max-w-[110px]">
                       <div className="flex gap-1 flex-wrap">
                         {flags.length === 0 && isScanned && (
                           <StatusPill status="OK" />
