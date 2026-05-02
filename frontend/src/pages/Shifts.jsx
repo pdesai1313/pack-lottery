@@ -4,8 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { getShifts, createShift, deleteShift } from '../api/shifts'
 import { useAuth } from '../context/AuthContext'
-
-const STATUS_COLORS = { OPEN: 'badge-blue', CLOSED: 'badge-gray' }
+import StatusPill from '../components/StatusPill'
 
 function CreateShiftModal({ onClose, closedShifts }) {
   const qc = useQueryClient()
@@ -213,7 +212,7 @@ export default function Shifts() {
           {shifts.map((s) => (
             <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
               <div className="flex items-center gap-3 min-w-0">
-                <span className={STATUS_COLORS[s.status]}>{s.status}</span>
+                <StatusPill status={s.status} />
                 <span className="font-medium text-sm">{s.date}</span>
                 <span className="font-semibold text-sm truncate">{s.shiftTag}</span>
                 <span className="text-gray-400 text-xs hidden sm:inline">

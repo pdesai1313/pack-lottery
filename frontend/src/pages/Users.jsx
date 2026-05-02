@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getUsers, createUser, updateUser } from '../api/users'
+import StatusPill from '../components/StatusPill'
 
 const ROLES = ['ADMIN', 'REVIEWER', 'OPERATOR']
 
@@ -111,14 +112,10 @@ export default function Users() {
                   <td className="px-4 py-2 font-medium">{u.name}</td>
                   <td className="px-4 py-2 text-gray-500">{u.email}</td>
                   <td className="px-4 py-2">
-                    <span className={u.role === 'ADMIN' ? 'badge-red' : u.role === 'REVIEWER' ? 'badge-blue' : 'badge-gray'}>
-                      {u.role}
-                    </span>
+                    <StatusPill status={u.role} />
                   </td>
                   <td className="px-4 py-2">
-                    <span className={u.active ? 'badge-green' : 'badge-gray'}>
-                      {u.active ? 'Active' : 'Inactive'}
-                    </span>
+                    <StatusPill status={u.active ? 'ACTIVE' : 'INACTIVE'} />
                   </td>
                   <td className="px-4 py-2">
                     <button className="btn-secondary btn-sm" onClick={() => setModal(u)}>Edit</button>

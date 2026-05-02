@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { getDailySummary } from '../api/shifts'
 import FlagBadge from '../components/FlagBadge'
+import StatusPill from '../components/StatusPill'
 
 export default function DailySummary() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -39,9 +40,10 @@ export default function DailySummary() {
             <button
               key={s.id}
               onClick={() => navigate(`/shifts/${s.id}/scan`)}
-              className={`${s.status === 'CLOSED' ? 'badge-gray' : 'badge-blue'} cursor-pointer hover:opacity-80`}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-gray-200 bg-white text-gray-700 cursor-pointer hover:bg-gray-50 transition-colors"
             >
-              {s.shiftTag} — {s.status}
+              {s.shiftTag}
+              <StatusPill status={s.status} tooltip="" />
             </button>
           ))}
         </div>
@@ -61,7 +63,7 @@ export default function DailySummary() {
                   <th key={s.id} className="text-left px-3 py-2 text-xs font-medium text-gray-500 whitespace-nowrap">
                     <div className="flex items-center gap-1">
                       <span>{s.shiftTag}</span>
-                      <span className={s.status === 'CLOSED' ? 'badge-gray' : 'badge-blue'}>{s.status}</span>
+                      <StatusPill status={s.status} />
                     </div>
                   </th>
                 ))}
@@ -88,7 +90,7 @@ export default function DailySummary() {
                           <span className="text-green-700 font-semibold">
                             {d.amount != null ? `$${d.amount.toFixed(2)}` : '—'}
                           </span>
-                          {!d.committed && <span className="badge-yellow ml-1">Draft</span>}
+                          {!d.committed && <StatusPill status="DRAFT" />}
                         </div>
                         {d.startTicket != null && (
                           <p className="text-gray-400 text-xs font-mono mt-0.5">

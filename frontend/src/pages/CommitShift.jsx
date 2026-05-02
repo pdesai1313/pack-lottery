@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getShiftPackStates, commitShift, exportCsv } from '../api/shifts'
 import FlagBadge, { isError } from '../components/FlagBadge'
+import StatusPill from '../components/StatusPill'
 import { useAuth } from '../context/AuthContext'
 
 function ConfirmModal({ totalAmount, shiftsCount, onConfirm, onCancel, isPending }) {
@@ -170,7 +171,7 @@ export default function CommitShift() {
                   </td>
                   <td className="px-3 py-1.5">
                     <div className="flex gap-1 flex-wrap">
-                      {flags.length === 0 ? <span className="badge-green text-xs">OK</span> : flags.map((f) => <FlagBadge key={f} flag={f} />)}
+                      {flags.length === 0 ? <StatusPill status="OK" /> : flags.map((f) => <FlagBadge key={f} flag={f} />)}
                     </div>
                   </td>
                   <td className="px-3 py-1.5">

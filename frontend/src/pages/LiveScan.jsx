@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getShiftPackStates, scanTicket, setStartTicket, updateReconciliation } from '../api/shifts'
 import FlagBadge, { isError } from '../components/FlagBadge'
+import StatusPill from '../components/StatusPill'
 import { useAuth } from '../context/AuthContext'
 
 function extractFromBarcode(raw) {
@@ -378,9 +379,7 @@ export default function LiveScan() {
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <h2 className="text-xl font-bold text-gray-900">Live Scan</h2>
-            {isClosed && (
-              <span className="badge-gray text-xs">Closed</span>
-            )}
+            {isClosed && <StatusPill status="CLOSED" />}
           </div>
           <p className="text-gray-500 text-sm">{shift.date} · {shift.shiftTag}</p>
         </div>
@@ -684,7 +683,7 @@ export default function LiveScan() {
                     <td className="px-3 py-2.5">
                       <div className="flex gap-1 flex-wrap">
                         {flags.length === 0 && isScanned && (
-                          <span className="badge-green text-xs">OK</span>
+                          <StatusPill status="OK" />
                         )}
                         {flags.map((f) => <FlagBadge key={f} flag={f} />)}
                       </div>

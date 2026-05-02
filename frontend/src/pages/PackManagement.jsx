@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getPacks, createPack, updatePack, deletePack } from '../api/packs'
+import StatusPill from '../components/StatusPill'
 
 function PackForm({ initial, onSave, onCancel, loading, error }) {
   const [form, setForm] = useState(initial || { packId: '', packSize: '', ticketValue: '', gameName: '', scannerNumber: '' })
@@ -178,9 +179,7 @@ export default function PackManagement() {
                   <td className="px-4 py-2">${p.ticketValue.toFixed(2)}</td>
                   <td className="px-4 py-2 font-mono">{p.scannerState?.lastCommittedTicket ?? 0}</td>
                   <td className="px-4 py-2">
-                    <span className={p.active ? 'badge-green' : 'badge-gray'}>
-                      {p.active ? 'Active' : 'Inactive'}
-                    </span>
+                    <StatusPill status={p.active ? 'ACTIVE' : 'INACTIVE'} />
                   </td>
                   <td className="px-4 py-2">
                     <div className="flex gap-1">
