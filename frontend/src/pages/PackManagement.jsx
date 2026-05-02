@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getPacks, createPack, updatePack } from '../api/packs'
 
@@ -46,6 +46,28 @@ function PackForm({ initial, onSave, onCancel, loading, error }) {
   )
 }
 
+function PackModal({ title, initial, onSave, onClose, loading, error }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+        </div>
+        <div className="p-5">
+          <PackForm initial={initial} onSave={onSave} onCancel={onClose} loading={loading} error={error} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function PackManagement() {
   const qc = useQueryClient()
   const [modal, setModal] = useState(null) // null | 'create' | pack object
@@ -81,20 +103,18 @@ export default function PackManagement() {
       </div>
 
       {modal && (
-        <div className="card mb-4">
-          <h3 className="font-medium mb-3">{modal === 'create' ? 'New Pack' : `Edit ${modal.packId}`}</h3>
-          <PackForm
-            initial={modal === 'create' ? null : modal}
-            onSave={(data) =>
-              modal === 'create'
-                ? createMutation.mutate(data)
-                : updateMutation.mutate({ id: modal.id, data })
-            }
-            onCancel={() => setModal(null)}
-            loading={createMutation.isPending || updateMutation.isPending}
-            error={formError}
-          />
-        </div>
+        <PackModal
+          title={modal === 'create' ? 'Add Pack' : `Edit ${modal.packId}`}
+          initial={modal === 'create' ? null : modal}
+          onSave={(data) =>
+            modal === 'create'
+              ? createMutation.mutate(data)
+              : updateMutation.mutate({ id: modal.id, data })
+          }
+          onClose={() => setModal(null)}
+          loading={createMutation.isPending || updateMutation.isPending}
+          error={formError}
+        />
       )}
 
       {isLoading ? (
