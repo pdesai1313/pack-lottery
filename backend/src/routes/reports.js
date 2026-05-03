@@ -6,6 +6,36 @@ const { verifyAccessToken } = require('../middleware/auth')
 const router = express.Router()
 const prisma = new PrismaClient()
 
+/**
+ * Convert accumulated machine readings (onlineSale, onlineCash, instantCash)
+ * into per-shift deltas for multi-shift days.
+ * Shifts must be sorted date ASC, createdAt ASC.
+ */
+function applyDayDeltas(shifts) {
+  const prev = {}
+  return shifts.map((s) => {
+    const p = prev[s.date] || { onlineSale: null, onlineCash: null, instantCash: null }
+
+    const delta = (raw, prevVal) => {
+      if (raw == null) return null
+      if (prevVal == null) return raw
+      return Math.max(0, raw - prevVal)
+    }
+
+    const effOnlineSale  = delta(s.onlineSale,  p.onlineSale)
+    const effOnlineCash  = delta(s.onlineCash,  p.onlineCash)
+    const effInstantCash = delta(s.instantCash, p.instantCash)
+
+    prev[s.date] = {
+      onlineSale:  s.onlineSale  != null ? s.onlineSale  : p.onlineSale,
+      onlineCash:  s.onlineCash  != null ? s.onlineCash  : p.onlineCash,
+      instantCash: s.instantCash != null ? s.instantCash : p.instantCash,
+    }
+
+    return { ...s, onlineSale: effOnlineSale, onlineCash: effOnlineCash, instantCash: effInstantCash }
+  })
+}
+
 router.get('/', verifyAccessToken, async (req, res) => {
   const schema = z.object({
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -16,11 +46,11 @@ router.get('/', verifyAccessToken, async (req, res) => {
 
   const { from, to } = result.data
 
-  const shifts = await prisma.shift.findMany({
+  const shifts = applyDayDeltas(await prisma.shift.findMany({
     where: { date: { gte: from, lte: to }, status: 'CLOSED' },
     include: { packSales: { include: { pack: true } } },
-    orderBy: { date: 'asc' },
-  })
+    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+  }))
 
   // ── Summary ──────────────────────────────────────────────────────────────
   let instantSale = 0, totalUnits = 0
