@@ -3,7 +3,7 @@ const { z } = require('zod')
 const { PrismaClient } = require('@prisma/client')
 const { stringify } = require('csv-stringify/sync')
 const { verifyAccessToken, requireRole } = require('../middleware/auth')
-const { computeDelta, resolveStartTicket, parseFlags, serializeFlags, isErrorFlag } = require('../lib/delta')
+const { computeDelta, resolveStartTicket, getEffectiveStartTicket, parseFlags, serializeFlags, isErrorFlag } = require('../lib/delta')
 const { audit } = require('../lib/audit')
 
 const router = express.Router()
@@ -206,9 +206,11 @@ router.post('/:id/packs/:packId/scan', verifyAccessToken, async (req, res) => {
   })
   const existingEndTickets = otherStates.map((s) => s.endTicket)
 
+  const effectiveStart = await getEffectiveStartTicket(prisma, shiftId, packId)
+
   const { endTicket, computedUnits, computedAmount, flags, rawBarcode } = computeDelta({
     rawInput: result.data.scannedTicket,
-    startTicket: packState.startTicket,
+    startTicket: effectiveStart,
     packSize: pack.packSize,
     ticketValue: pack.ticketValue,
     toleranceTickets: settings.toleranceTickets,
@@ -217,7 +219,7 @@ router.post('/:id/packs/:packId/scan', verifyAccessToken, async (req, res) => {
 
   const updated = await prisma.packState.update({
     where: { id: packState.id },
-    data: { endTicket, computedUnits, computedAmount, flags: serializeFlags(flags), rawBarcode },
+    data: { startTicket: effectiveStart, endTicket, computedUnits, computedAmount, flags: serializeFlags(flags), rawBarcode },
   })
 
   res.json({ packState: { ...updated, flags } })
@@ -339,16 +341,31 @@ router.post('/:id/commit', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER'])
       const override = overrideMap[ps.id] || null
       const flags = parseFlags(ps.flags)
 
+      const effectiveStart = await getEffectiveStartTicket(tx, shiftId, ps.packId)
+      const correctStart = effectiveStart ?? ps.startTicket ?? 0
+
+      let correctUnits = ps.computedUnits ?? 0
+      let correctAmount = ps.computedAmount ?? 0
+      if (effectiveStart != null && ps.endTicket != null) {
+        const rawUnits = ps.endTicket > effectiveStart
+          ? effectiveStart + ps.pack.packSize - ps.endTicket
+          : effectiveStart - ps.endTicket
+        if (rawUnits >= 0) {
+          correctUnits = rawUnits
+          correctAmount = parseFloat((rawUnits * ps.pack.ticketValue).toFixed(2))
+        }
+      }
+
       const sale = await tx.packSale.upsert({
         where: { packId_shiftId: { packId: ps.packId, shiftId } },
         update: {},
         create: {
           packId: ps.packId,
           shiftId,
-          startTicket: ps.startTicket ?? 0,
+          startTicket: correctStart,
           endTicket: ps.endTicket ?? 0,
-          unitsSold: ps.computedUnits ?? 0,
-          amount: ps.computedAmount ?? 0,
+          unitsSold: correctUnits,
+          amount: correctAmount,
           flags: serializeFlags(flags),
           overrideReason: override,
         },

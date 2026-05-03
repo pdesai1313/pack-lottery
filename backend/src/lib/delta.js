@@ -131,4 +131,50 @@ async function resolveStartTicket({ startSource, manualShiftId, packId, packSize
   return state.lastCommittedTicket === 0 ? initialTicket(packSize) : state.lastCommittedTicket
 }
 
-module.exports = { FLAGS, parseFlags, serializeFlags, isErrorFlag, computeDelta, resolveStartTicket, extractTicketNumber, initialTicket }
+/**
+ * Compute the correct start ticket for a given shift+pack pair.
+ * For the first shift of a day, uses scanner state (previous committed end).
+ * For later shifts, chains off the previous shift's end ticket so sales
+ * are never double-counted across pre-created same-day shifts.
+ */
+async function getEffectiveStartTicket(prisma, shiftId, packId) {
+  const shift = await prisma.shift.findUnique({ where: { id: shiftId }, select: { date: true } })
+  if (!shift) return null
+
+  const dayShifts = await prisma.shift.findMany({
+    where: { date: shift.date },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  })
+
+  const myIndex = dayShifts.findIndex((s) => s.id === shiftId)
+
+  const fromScannerState = async () => {
+    const pack = await prisma.pack.findUnique({ where: { id: packId }, select: { packSize: true } })
+    const state = await prisma.scannerState.findUnique({ where: { packId } })
+    if (!state || state.lastCommittedTicket === 0) return pack ? initialTicket(pack.packSize) : null
+    return state.lastCommittedTicket
+  }
+
+  if (myIndex <= 0) return fromScannerState()
+
+  const prevShiftId = dayShifts[myIndex - 1].id
+
+  // Prefer the committed sale's end ticket
+  const sale = await prisma.packSale.findUnique({
+    where: { packId_shiftId: { packId, shiftId: prevShiftId } },
+    select: { endTicket: true },
+  })
+  if (sale) return sale.endTicket
+
+  // Previous shift still open — use its current scan state
+  const prevState = await prisma.packState.findUnique({
+    where: { packId_shiftId: { packId, shiftId: prevShiftId } },
+    select: { endTicket: true },
+  })
+  if (prevState?.endTicket != null) return prevState.endTicket
+
+  return fromScannerState()
+}
+
+module.exports = { FLAGS, parseFlags, serializeFlags, isErrorFlag, computeDelta, resolveStartTicket, getEffectiveStartTicket, extractTicketNumber, initialTicket }
