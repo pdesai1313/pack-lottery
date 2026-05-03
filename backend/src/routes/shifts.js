@@ -206,11 +206,9 @@ router.post('/:id/packs/:packId/scan', verifyAccessToken, async (req, res) => {
   })
   const existingEndTickets = otherStates.map((s) => s.endTicket)
 
-  const effectiveStart = await getEffectiveStartTicket(prisma, shiftId, packId)
-
   const { endTicket, computedUnits, computedAmount, flags, rawBarcode } = computeDelta({
     rawInput: result.data.scannedTicket,
-    startTicket: effectiveStart,
+    startTicket: packState.startTicket,
     packSize: pack.packSize,
     ticketValue: pack.ticketValue,
     toleranceTickets: settings.toleranceTickets,
@@ -219,7 +217,7 @@ router.post('/:id/packs/:packId/scan', verifyAccessToken, async (req, res) => {
 
   const updated = await prisma.packState.update({
     where: { id: packState.id },
-    data: { startTicket: effectiveStart, endTicket, computedUnits, computedAmount, flags: serializeFlags(flags), rawBarcode },
+    data: { endTicket, computedUnits, computedAmount, flags: serializeFlags(flags), rawBarcode },
   })
 
   res.json({ packState: { ...updated, flags } })
