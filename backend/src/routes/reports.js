@@ -11,10 +11,19 @@ const prisma = new PrismaClient()
  * into per-shift deltas for multi-shift days.
  * Shifts must be sorted date ASC, createdAt ASC.
  */
+/**
+ * Convert accumulated machine/register readings into per-shift deltas
+ * for multi-shift days. All five reconciliation fields are entered as
+ * day-running totals, so each shift's effective value = raw - previous.
+ * Shifts must be sorted date ASC, createdAt ASC.
+ */
 function applyDayDeltas(shifts) {
   const prev = {}
   return shifts.map((s) => {
-    const p = prev[s.date] || { onlineSale: null, onlineCash: null, instantCash: null }
+    const p = prev[s.date] || {
+      onlineSale: null, onlineCash: null, instantCash: null,
+      atm: null, actualCashOnHand: null,
+    }
 
     const delta = (raw, prevVal) => {
       if (raw == null) return null
@@ -22,17 +31,28 @@ function applyDayDeltas(shifts) {
       return Math.max(0, raw - prevVal)
     }
 
-    const effOnlineSale  = delta(s.onlineSale,  p.onlineSale)
-    const effOnlineCash  = delta(s.onlineCash,  p.onlineCash)
-    const effInstantCash = delta(s.instantCash, p.instantCash)
+    const effOnlineSale       = delta(s.onlineSale,       p.onlineSale)
+    const effOnlineCash       = delta(s.onlineCash,       p.onlineCash)
+    const effInstantCash      = delta(s.instantCash,      p.instantCash)
+    const effAtm              = delta(s.atm,              p.atm)
+    const effActualCashOnHand = delta(s.actualCashOnHand, p.actualCashOnHand)
 
     prev[s.date] = {
-      onlineSale:  s.onlineSale  != null ? s.onlineSale  : p.onlineSale,
-      onlineCash:  s.onlineCash  != null ? s.onlineCash  : p.onlineCash,
-      instantCash: s.instantCash != null ? s.instantCash : p.instantCash,
+      onlineSale:       s.onlineSale       != null ? s.onlineSale       : p.onlineSale,
+      onlineCash:       s.onlineCash       != null ? s.onlineCash       : p.onlineCash,
+      instantCash:      s.instantCash      != null ? s.instantCash      : p.instantCash,
+      atm:              s.atm              != null ? s.atm              : p.atm,
+      actualCashOnHand: s.actualCashOnHand != null ? s.actualCashOnHand : p.actualCashOnHand,
     }
 
-    return { ...s, onlineSale: effOnlineSale, onlineCash: effOnlineCash, instantCash: effInstantCash }
+    return {
+      ...s,
+      onlineSale:       effOnlineSale,
+      onlineCash:       effOnlineCash,
+      instantCash:      effInstantCash,
+      atm:              effAtm,
+      actualCashOnHand: effActualCashOnHand,
+    }
   })
 }
 
