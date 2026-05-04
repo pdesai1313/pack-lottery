@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { getShifts, createShift, deleteShift } from '../api/shifts'
+import { getShifts, createShift, deleteShift, reopenShift } from '../api/shifts'
 import { useAuth } from '../context/AuthContext'
 import StatusPill from '../components/StatusPill'
 
@@ -142,6 +142,7 @@ export default function Shifts() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [confirmReopenId, setConfirmReopenId] = useState(null)
 
   const { data: shifts = [], isLoading } = useQuery({ queryKey: ['shifts'], queryFn: getShifts })
 
@@ -153,6 +154,16 @@ export default function Shifts() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shifts'] })
       setConfirmDeleteId(null)
+    },
+  })
+
+  const reopenMutation = useMutation({
+    mutationFn: reopenShift,
+    onSuccess: (data, shiftId) => {
+      qc.invalidateQueries({ queryKey: ['shifts'] })
+      setConfirmReopenId(null)
+      if (data.warning) alert(data.warning)
+      else navigate(`/shifts/${shiftId}/scan`)
     },
   })
 
@@ -173,6 +184,50 @@ export default function Shifts() {
           closedShifts={closedShifts}
         />
       )}
+
+      {/* Reopen confirmation modal */}
+      {confirmReopenId && (() => {
+        const shift = shifts.find((s) => s.id === confirmReopenId)
+        const sameDayOthers = shifts.filter(
+          (s) => s.status === 'CLOSED' && s.date === shift?.date && s.id !== confirmReopenId
+        )
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
+              <h3 className="font-bold text-lg mb-1">Reopen this shift?</h3>
+              <p className="text-gray-500 text-sm mb-3">
+                All committed sales data for <span className="font-semibold">{shift?.shiftTag}</span> on{' '}
+                <span className="font-semibold">{shift?.date}</span> will be deleted so you can re-scan and re-commit.
+              </p>
+              {sameDayOthers.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-3">
+                  <p className="text-amber-800 text-xs font-medium">
+                    ⚠️ {sameDayOthers.length} other committed shift{sameDayOthers.length > 1 ? 's' : ''} exist on this date
+                    ({sameDayOthers.map((s) => s.shiftTag).join(', ')}). Their start ticket chain may be affected —
+                    consider reopening and re-committing those too.
+                  </p>
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button
+                  className="btn-secondary flex-1"
+                  onClick={() => setConfirmReopenId(null)}
+                  disabled={reopenMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn-primary flex-1"
+                  onClick={() => reopenMutation.mutate(confirmReopenId)}
+                  disabled={reopenMutation.isPending}
+                >
+                  {reopenMutation.isPending ? 'Reopening…' : 'Reopen Shift'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Delete confirmation modal */}
       {confirmDeleteId && (
@@ -233,6 +288,11 @@ export default function Shifts() {
                 {s.status === 'CLOSED' && (
                   <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${s.id}/commit`)}>
                     View
+                  </button>
+                )}
+                {s.status === 'CLOSED' && isAdmin && (
+                  <button className="btn-secondary btn-sm" onClick={() => setConfirmReopenId(s.id)}>
+                    Reopen
                   </button>
                 )}
                 {isAdmin && (

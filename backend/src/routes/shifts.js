@@ -428,6 +428,38 @@ router.get('/:id/export', verifyAccessToken, async (req, res) => {
   res.send(csv)
 })
 
+// ── Reopen shift (ADMIN only) ─────────────────────────────────────────────────
+
+router.post('/:id/reopen', verifyAccessToken, requireRole(['ADMIN']), async (req, res) => {
+  const shiftId = parseInt(req.params.id, 10)
+
+  const shift = await prisma.shift.findUnique({ where: { id: shiftId } })
+  if (!shift) return res.status(404).json({ error: 'Shift not found' })
+  if (shift.status !== 'CLOSED') return res.status(409).json({ error: 'Shift is not closed' })
+
+  const otherClosedCount = await prisma.shift.count({
+    where: { date: shift.date, status: 'CLOSED', id: { not: shiftId } },
+  })
+
+  await prisma.$transaction(async (tx) => {
+    await tx.packSale.deleteMany({ where: { shiftId } })
+    await tx.packState.updateMany({
+      where: { shiftId },
+      data: { status: 'OPEN', overrideReason: null },
+    })
+    await tx.shift.update({ where: { id: shiftId }, data: { status: 'OPEN' } })
+  })
+
+  await audit(prisma, req.user.id, 'UPDATE', 'SHIFT', shiftId, `Reopened shift ${shift.date} — ${shift.shiftTag} for re-commit`)
+
+  res.json({
+    status: 'ok',
+    warning: otherClosedCount > 0
+      ? `${otherClosedCount} other committed shift(s) exist on ${shift.date}. Their start ticket chain may be affected — consider reopening and re-committing them too.`
+      : null,
+  })
+})
+
 // ── Delete shift ──────────────────────────────────────────────────────────────
 
 router.delete('/:id', verifyAccessToken, requireRole(['ADMIN']), async (req, res) => {
