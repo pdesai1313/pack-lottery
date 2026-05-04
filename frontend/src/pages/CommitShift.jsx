@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getShiftPackStates, commitShift, exportCsv } from '../api/shifts'
+import { getShiftPackStates, commitShift, exportCsv, updateReconciliation } from '../api/shifts'
 import FlagBadge, { isError } from '../components/FlagBadge'
 import StatusPill from '../components/StatusPill'
 import { useAuth } from '../context/AuthContext'
@@ -18,7 +18,7 @@ function ConfirmModal({ totalAmount, shiftsCount, onConfirm, onCancel, isPending
       <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
         <h3 className="text-lg font-bold mb-1">Commit this shift?</h3>
         <p className="text-gray-500 text-sm mb-4">
-          This will lock the shift and cannot be undone.
+          This will lock the shift. Admins can reopen it later if corrections are needed.
         </p>
         <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 mb-5 text-sm">
           <div className="flex justify-between"><span className="text-gray-500">Instant Sale</span><span className="font-bold text-green-700">${totalAmount.toFixed(2)}</span></div>
@@ -44,10 +44,21 @@ export default function CommitShift() {
   const [overrides, setOverrides] = useState({})
   const [commitError, setCommitError] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
+  const [recon, setRecon] = useState(null)
+  const [reconSaved, setReconSaved] = useState(false)
 
   const { data: shift, isLoading } = useQuery({
     queryKey: ['shifts', shiftId, 'packstates'],
     queryFn: () => getShiftPackStates(shiftId),
+    onSuccess: (data) => {
+      if (recon === null) setRecon({
+        onlineSale:       data.onlineSale       ?? '',
+        atm:              data.atm              ?? '',
+        onlineCash:       data.onlineCash       ?? '',
+        instantCash:      data.instantCash      ?? '',
+        actualCashOnHand: data.actualCashOnHand ?? '',
+      })
+    },
   })
 
   const commitMutation = useMutation({
@@ -70,6 +81,35 @@ export default function CommitShift() {
 
   const isClosed = shift.status === 'CLOSED'
   const canCommit = ['ADMIN', 'REVIEWER'].includes(user?.role)
+  const isAdmin = user?.role === 'ADMIN'
+
+  const reconFields = [
+    { key: 'onlineSale',       label: 'Online Sale' },
+    { key: 'atm',              label: 'ATM' },
+    { key: 'onlineCash',       label: 'Online Cash' },
+    { key: 'instantCash',      label: 'Instant Cash' },
+    { key: 'actualCashOnHand', label: 'Actual COH' },
+  ]
+
+  const initRecon = recon ?? {
+    onlineSale:       shift.onlineSale       ?? '',
+    atm:              shift.atm              ?? '',
+    onlineCash:       shift.onlineCash       ?? '',
+    instantCash:      shift.instantCash      ?? '',
+    actualCashOnHand: shift.actualCashOnHand ?? '',
+  }
+
+  async function saveRecon() {
+    const payload = {}
+    for (const { key } of reconFields) {
+      const val = initRecon[key]
+      payload[key] = val === '' ? null : Number(val)
+    }
+    await updateReconciliation(shiftId, payload)
+    qc.invalidateQueries({ queryKey: ['shifts', shiftId, 'packstates'] })
+    setReconSaved(true)
+    setTimeout(() => setReconSaved(false), 2000)
+  }
   const packStates = shift.packStates || []
 
   const totalUnits = packStates.reduce((s, ps) => s + (ps.computedUnits || 0), 0)
@@ -137,6 +177,44 @@ export default function CommitShift() {
       )}
 
       {commitError && <p className="text-red-600 text-xs mb-3">{commitError}</p>}
+
+      {/* Reconciliation */}
+      {(isAdmin || isClosed) && (
+        <div className="card p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold">Reconciliation</p>
+            {isAdmin && (
+              <button
+                className="btn-primary btn-sm"
+                onClick={saveRecon}
+              >
+                {reconSaved ? 'Saved ✓' : 'Save'}
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {reconFields.map(({ key, label }) => (
+              <div key={key}>
+                <label className="text-xs text-gray-400 font-medium block mb-1">{label}</label>
+                {isAdmin ? (
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input py-1 text-sm"
+                    placeholder="0.00"
+                    value={recon?.[key] ?? shift[key] ?? ''}
+                    onChange={(e) => setRecon((p) => ({ ...p, [key]: e.target.value }))}
+                  />
+                ) : (
+                  <p className="text-sm font-semibold">
+                    {shift[key] != null ? `$${Number(shift[key]).toFixed(2)}` : '—'}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Compact table */}
       <div className="card p-0 overflow-x-auto">

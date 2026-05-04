@@ -354,19 +354,20 @@ router.post('/:id/commit', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER'])
         }
       }
 
+      const saleData = {
+        packId: ps.packId,
+        shiftId,
+        startTicket: correctStart,
+        endTicket: ps.endTicket ?? 0,
+        unitsSold: correctUnits,
+        amount: correctAmount,
+        flags: serializeFlags(flags),
+        overrideReason: override,
+      }
       const sale = await tx.packSale.upsert({
         where: { packId_shiftId: { packId: ps.packId, shiftId } },
-        update: {},
-        create: {
-          packId: ps.packId,
-          shiftId,
-          startTicket: correctStart,
-          endTicket: ps.endTicket ?? 0,
-          unitsSold: correctUnits,
-          amount: correctAmount,
-          flags: serializeFlags(flags),
-          overrideReason: override,
-        },
+        update: { ...saleData, committedAt: new Date() },
+        create: saleData,
       })
       sales.push(sale)
 
@@ -442,7 +443,6 @@ router.post('/:id/reopen', verifyAccessToken, requireRole(['ADMIN']), async (req
   })
 
   await prisma.$transaction(async (tx) => {
-    await tx.packSale.deleteMany({ where: { shiftId } })
     await tx.packState.updateMany({
       where: { shiftId },
       data: { status: 'OPEN', overrideReason: null },

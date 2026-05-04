@@ -196,8 +196,9 @@ export default function Shifts() {
             <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
               <h3 className="font-bold text-lg mb-1">Reopen this shift?</h3>
               <p className="text-gray-500 text-sm mb-3">
-                All committed sales data for <span className="font-semibold">{shift?.shiftTag}</span> on{' '}
-                <span className="font-semibold">{shift?.date}</span> will be deleted so you can re-scan and re-commit.
+                <span className="font-semibold">{shift?.shiftTag}</span> on{' '}
+                <span className="font-semibold">{shift?.date}</span> will be unlocked for editing. Existing scan data
+                is kept — re-scan any packs that need correction, update reconciliation fields, then re-commit.
               </p>
               {sameDayOthers.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-3">
