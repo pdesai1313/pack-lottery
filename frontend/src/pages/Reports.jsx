@@ -9,6 +9,55 @@ function fmt(n) {
 
 function today() { return new Date().toISOString().split('T')[0] }
 
+function exportCsv(data, from, to) {
+  const cols = [
+    'Date', 'Shift', 'Units',
+    'Instant Sale', 'Online Sale', 'Total Sale',
+    'ATM', 'Online Cash', 'Instant Cash', 'Total Cash',
+    'Expected COH', 'Actual COH', 'Overall Total',
+  ]
+  const cell = (v) => (v == null ? '' : String(v).includes(',') ? `"${v}"` : v)
+  const money = (v) => (v == null ? '' : Number(v).toFixed(2))
+  const rows = [cols.join(',')]
+
+  for (const day of data.byDay) {
+    for (const shift of day.shifts) {
+      rows.push([
+        cell(day.date),
+        cell(shift.shiftTag),
+        cell(shift.units),
+        money(shift.instantSale),
+        money(shift.onlineSale),
+        money(shift.totalSale),
+        money(shift.atm),
+        money(shift.onlineCash),
+        money(shift.instantCash),
+        money(shift.totalCash),
+        money(shift.expectedCOH),
+        money(shift.actualCOH),
+        money(shift.overallTotal),
+      ].join(','))
+    }
+  }
+
+  // Summary totals row
+  const s = data.summary
+  rows.push([
+    'TOTAL', '', cell(s.totalUnits),
+    money(s.instantSale), money(s.onlineSale), money(s.totalSale),
+    money(s.atm), money(s.onlineCash), money(s.instantCash), money(s.totalCash),
+    money(s.expectedCOH), money(s.actualCOH), money(s.overallTotal),
+  ].join(','))
+
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `report-${from}-to-${to}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function getPeriodDates(period) {
   const t = new Date()
   const pad = (n) => String(n).padStart(2, '0')
@@ -80,9 +129,19 @@ export default function Reports() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-xl font-bold tracking-tight">Reports</h2>
-        <p className="text-gray-400 text-xs mt-0.5">Sales and cash reconciliation summary</p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">Reports</h2>
+          <p className="text-gray-400 text-xs mt-0.5">Sales and cash reconciliation summary</p>
+        </div>
+        {data && dates && (
+          <button
+            className="btn-secondary btn-sm"
+            onClick={() => exportCsv(data, dates.from, dates.to)}
+          >
+            ↓ CSV
+          </button>
+        )}
       </div>
 
       {/* Period selector */}
