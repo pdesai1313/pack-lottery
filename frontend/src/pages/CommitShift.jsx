@@ -137,7 +137,12 @@ export default function CommitShift() {
           <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${shiftId}/scan`)}>
             ← Back to Scan
           </button>
-          <a href={exportCsv(shiftId)} className="btn-secondary btn-sm" download>↓ CSV</a>
+          <button
+            className="btn-secondary btn-sm"
+            onClick={() => exportCsv(shiftId, `shift-${shiftId}-${shift.date}-${shift.shiftTag}.csv`)}
+          >
+            ↓ CSV
+          </button>
           {!isClosed && canCommit && (
             <button
               className="btn-primary btn-sm"

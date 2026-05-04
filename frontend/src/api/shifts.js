@@ -13,6 +13,14 @@ export const getExceptions = (shiftId) => api.get(`/shifts/${shiftId}/exceptions
 export const getDailySummary = (date) => api.get(`/shifts/daily?date=${date}`).then((r) => r.data)
 export const updateReconciliation = (shiftId, data) =>
   api.put(`/shifts/${shiftId}/reconciliation`, data).then((r) => r.data)
-export const exportCsv = (shiftId) => `/api/shifts/${shiftId}/export?format=csv`
+export const exportCsv = async (shiftId, filename) => {
+  const res = await api.get(`/shifts/${shiftId}/export`, { responseType: 'blob' })
+  const url = URL.createObjectURL(res.data)
+  const a   = document.createElement('a')
+  a.href     = url
+  a.download = filename || `shift-${shiftId}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 export const deleteShift = (shiftId) => api.delete(`/shifts/${shiftId}`).then((r) => r.data)
 export const reopenShift = (shiftId) => api.post(`/shifts/${shiftId}/reopen`).then((r) => r.data)
