@@ -189,7 +189,7 @@ export default function Shifts() {
       {confirmReopenId && (() => {
         const shift = shifts.find((s) => s.id === confirmReopenId)
         const sameDayOthers = shifts.filter(
-          (s) => s.status === 'CLOSED' && s.date === shift?.date && s.id !== confirmReopenId
+          (s) => s.status === 'CLOSED' && s.date === shift?.date && s.createdAt > shift?.createdAt
         )
         return (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">

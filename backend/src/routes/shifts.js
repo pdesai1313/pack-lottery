@@ -438,8 +438,8 @@ router.post('/:id/reopen', verifyAccessToken, requireRole(['ADMIN']), async (req
   if (!shift) return res.status(404).json({ error: 'Shift not found' })
   if (shift.status !== 'CLOSED') return res.status(409).json({ error: 'Shift is not closed' })
 
-  const otherClosedCount = await prisma.shift.count({
-    where: { date: shift.date, status: 'CLOSED', id: { not: shiftId } },
+  const laterClosedCount = await prisma.shift.count({
+    where: { date: shift.date, status: 'CLOSED', createdAt: { gt: shift.createdAt } },
   })
 
   await prisma.$transaction(async (tx) => {
@@ -454,8 +454,8 @@ router.post('/:id/reopen', verifyAccessToken, requireRole(['ADMIN']), async (req
 
   res.json({
     status: 'ok',
-    warning: otherClosedCount > 0
-      ? `${otherClosedCount} other committed shift(s) exist on ${shift.date}. Their start ticket chain may be affected — consider reopening and re-committing them too.`
+    warning: laterClosedCount > 0
+      ? `${laterClosedCount} later committed shift(s) on ${shift.date} chain off this shift's end tickets. Consider reopening and re-committing those too after making corrections.`
       : null,
   })
 })
