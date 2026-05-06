@@ -28,7 +28,7 @@ function applyDayDeltas(shifts) {
     const delta = (raw, prevVal) => {
       if (raw == null) return null
       if (prevVal == null) return raw
-      return Math.max(0, raw - prevVal)
+      return raw - prevVal
     }
 
     const effOnlineSale       = delta(s.onlineSale,       p.onlineSale)
