@@ -149,32 +149,41 @@ async function getEffectiveStartTicket(prisma, shiftId, packId) {
 
   const myIndex = dayShifts.findIndex((s) => s.id === shiftId)
 
-  const fromScannerState = async () => {
+  // Look up the last committed PackSale for this pack from a PRIOR date.
+  // This is always reliable — committed records can't be corrupted by out-of-order
+  // commits the way scanner state can (scanner state is updated on every commit,
+  // so if a same-date later-created shift commits first it overwrites the state).
+  const fromLastCommittedSale = async () => {
+    const lastSale = await prisma.packSale.findFirst({
+      where: { packId, shift: { date: { lt: shift.date } } },
+      orderBy: [{ shift: { date: 'desc' } }, { shift: { createdAt: 'desc' } }],
+      select: { endTicket: true },
+    })
+    if (lastSale) return lastSale.endTicket
+    // Brand-new pack — no prior sales; start at the last ticket in the book
     const pack = await prisma.pack.findUnique({ where: { id: packId }, select: { packSize: true } })
-    const state = await prisma.scannerState.findUnique({ where: { packId } })
-    if (!state || state.lastCommittedTicket === 0) return pack ? initialTicket(pack.packSize) : null
-    return state.lastCommittedTicket
+    return pack ? initialTicket(pack.packSize) : null
   }
 
-  if (myIndex <= 0) return fromScannerState()
+  if (myIndex <= 0) return fromLastCommittedSale()
 
   const prevShiftId = dayShifts[myIndex - 1].id
 
-  // Prefer the committed sale's end ticket
+  // Prefer the committed sale's end ticket from the previous same-day shift
   const sale = await prisma.packSale.findUnique({
     where: { packId_shiftId: { packId, shiftId: prevShiftId } },
     select: { endTicket: true },
   })
   if (sale) return sale.endTicket
 
-  // Previous shift still open — use its current scan state
+  // Previous same-day shift not yet committed — use its scanned end ticket
   const prevState = await prisma.packState.findUnique({
     where: { packId_shiftId: { packId, shiftId: prevShiftId } },
     select: { endTicket: true },
   })
   if (prevState?.endTicket != null) return prevState.endTicket
 
-  return fromScannerState()
+  return fromLastCommittedSale()
 }
 
 module.exports = { FLAGS, parseFlags, serializeFlags, isErrorFlag, computeDelta, resolveStartTicket, getEffectiveStartTicket, extractTicketNumber, initialTicket }
