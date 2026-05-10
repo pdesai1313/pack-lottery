@@ -128,7 +128,11 @@ async function resolveStartTicket({ startSource, manualShiftId, packId, packSize
   // Default: use scanner state (last committed ticket across all shifts)
   const state = await prisma.scannerState.findUnique({ where: { packId } })
   if (!state) return initialTicket(packSize)
-  return state.lastCommittedTicket === 0 ? initialTicket(packSize) : state.lastCommittedTicket
+  // lastCommittedAt === null means the scanner state record exists but was never actually
+  // committed — treat as fresh. lastCommittedTicket === 0 is NOT a safe sentinel because
+  // ticket #0 is the legitimate last ticket in any book (tickets count down to 0).
+  if (!state.lastCommittedAt) return initialTicket(packSize)
+  return state.lastCommittedTicket
 }
 
 /**

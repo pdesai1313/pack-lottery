@@ -1,5 +1,5 @@
 /**
- * Tests for getEffectiveStartTicket and applyDayDeltas
+ * Tests for getEffectiveStartTicket, resolveStartTicket, and applyDayDeltas
  *
  * getEffectiveStartTicket scenarios:
  *   A. Brand-new pack, no prior sales → initialTicket(packSize)
@@ -9,6 +9,12 @@
  *   E. Second shift of day, first NOT yet committed → first PackState.endTicket
  *   F. Out-of-order commit: second shift committed first, then first shift commits
  *      → first shift should still get prior-day endTicket (not stale scanner state)
+ *   G. Prior day's last PackSale endTicket is 0 (sold to last ticket in book)
+ *      → returns 0 correctly (0 is not confused with "never committed")
+ *
+ * resolveStartTicket scenarios:
+ *   H. Scanner state lastCommittedAt is null → pack never committed → initialTicket
+ *   I. Scanner state lastCommittedTicket is 0, lastCommittedAt is set → ticket #0 sold → return 0
  *
  * applyDayDeltas scenarios:
  *   1. Single shift per day — values pass through unchanged
@@ -19,7 +25,7 @@
  */
 
 const { mockDeep } = require('jest-mock-extended')
-const { getEffectiveStartTicket, initialTicket } = require('../lib/delta')
+const { getEffectiveStartTicket, resolveStartTicket, initialTicket } = require('../lib/delta')
 const { applyDayDeltas } = require('../routes/reports')
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -142,6 +148,45 @@ describe('getEffectiveStartTicket', () => {
     expect(result).toBe(4)
     // Confirm it queried prior-day PackSales, NOT scanner state
     expect(prisma.scannerState.findUnique).not.toHaveBeenCalled()
+  })
+
+  test('G: prior day endTicket is 0 — returns 0 (not confused with "never committed")', async () => {
+    // Reproduces the PACK-020 May 9 bug: last ticket sold was #0, new shift should start at 0,
+    // but scanner state used to return initialTicket(packSize) because 0 was treated as "empty".
+    const prisma = makePrisma()
+
+    prisma.shift.findUnique.mockResolvedValue(shift(27, '2026-05-09', '2026-05-09T16:00:00Z'))
+    prisma.shift.findMany.mockResolvedValue([shift(27, '2026-05-09', '2026-05-09T16:00:00Z')])
+    // Prior day's last PackSale ended at ticket 0
+    prisma.packSale.findFirst.mockResolvedValue({ endTicket: 0 })
+
+    const result = await getEffectiveStartTicket(prisma, 27, 20)
+    expect(result).toBe(0) // must be 0, NOT initialTicket(100) = 99
+  })
+})
+
+// ─── resolveStartTicket ───────────────────────────────────────────────────────
+
+describe('resolveStartTicket', () => {
+  test('H: scanner state exists but lastCommittedAt is null → never committed → initialTicket', async () => {
+    const prisma = makePrisma()
+    prisma.scannerState.findUnique.mockResolvedValue({ lastCommittedTicket: 0, lastCommittedAt: null })
+
+    const result = await resolveStartTicket({ startSource: 'previous_day', packId: 5, packSize: 100, date: '2026-05-09', prisma })
+    expect(result).toBe(initialTicket(100)) // 99 — brand-new pack
+  })
+
+  test('I: scanner state lastCommittedTicket is 0 and lastCommittedAt is set → last ticket was #0 → return 0', async () => {
+    // Ticket #0 is the last ticket in a book. After selling it, the next shift should start at 0,
+    // not jump back to initialTicket(packSize). Old bug: 0 was treated as sentinel for "never committed".
+    const prisma = makePrisma()
+    prisma.scannerState.findUnique.mockResolvedValue({
+      lastCommittedTicket: 0,
+      lastCommittedAt: new Date('2026-05-08T17:45:00Z'),
+    })
+
+    const result = await resolveStartTicket({ startSource: 'previous_day', packId: 5, packSize: 100, date: '2026-05-09', prisma })
+    expect(result).toBe(0) // must be 0, NOT initialTicket(100)
   })
 })
 
