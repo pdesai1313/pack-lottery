@@ -1,10 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { getShifts, createShift, deleteShift, reopenShift } from '../api/shifts'
 import { useAuth } from '../context/AuthContext'
 import StatusPill from '../components/StatusPill'
+
+function monthLabel(key) {
+  const [year, month] = key.split('-')
+  return new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1)
+    .toLocaleString('en-US', { month: 'long', year: 'numeric' })
+}
 
 function CreateShiftModal({ onClose, closedShifts }) {
   const qc = useQueryClient()
@@ -13,7 +19,21 @@ function CreateShiftModal({ onClose, closedShifts }) {
   const [shiftName, setShiftName] = useState('')
   const [startSource, setStartSource] = useState('previous_day')
   const [manualShiftId, setManualShiftId] = useState('')
+  const [shiftFilter, setShiftFilter] = useState('')
   const [error, setError] = useState('')
+
+  const filteredShifts = closedShifts.filter((s) => {
+    if (!shiftFilter) return true
+    const q = shiftFilter.toLowerCase()
+    return s.date.includes(q) || s.shiftTag.toLowerCase().includes(q)
+  })
+  const filteredGroupMap = {}
+  for (const s of filteredShifts) {
+    const key = s.date.slice(0, 7)
+    if (!filteredGroupMap[key]) filteredGroupMap[key] = []
+    filteredGroupMap[key].push(s)
+  }
+  const filteredGroups = Object.entries(filteredGroupMap).sort(([a], [b]) => b.localeCompare(a))
 
   useEffect(() => {
     function onKey(e) { if (e.key === 'Escape') onClose() }
@@ -100,18 +120,32 @@ function CreateShiftModal({ onClose, closedShifts }) {
               {closedShifts.length === 0 ? (
                 <p className="text-xs text-gray-400">No committed shifts available yet.</p>
               ) : (
-                <select
-                  className="input"
-                  value={manualShiftId}
-                  onChange={(e) => setManualShiftId(e.target.value)}
-                >
-                  <option value="">— Select a shift —</option>
-                  {closedShifts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.date} · {s.shiftTag} (#{s.id})
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <input
+                    type="text"
+                    className="input mb-2"
+                    placeholder="Filter by date or name…"
+                    value={shiftFilter}
+                    onChange={(e) => setShiftFilter(e.target.value)}
+                  />
+                  <select
+                    className="input"
+                    value={manualShiftId}
+                    onChange={(e) => setManualShiftId(e.target.value)}
+                    size={Math.min(filteredShifts.length + 1, 7)}
+                  >
+                    <option value="">— Select a shift —</option>
+                    {filteredGroups.map(([monthKey, monthShifts]) => (
+                      <optgroup key={monthKey} label={monthLabel(monthKey)}>
+                        {monthShifts.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.date} · {s.shiftTag}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </>
               )}
             </div>
           )}
@@ -148,6 +182,19 @@ export default function Shifts() {
 
   const closedShifts = shifts.filter((s) => s.status === 'CLOSED')
   const isAdmin = user?.role === 'ADMIN'
+
+  const currentMonthKey = format(new Date(), 'yyyy-MM')
+  const [expandedMonths, setExpandedMonths] = useState(() => ({ [currentMonthKey]: true }))
+
+  const monthGroups = useMemo(() => {
+    const map = {}
+    for (const s of shifts) {
+      const key = s.date.slice(0, 7)
+      if (!map[key]) map[key] = []
+      map[key].push(s)
+    }
+    return Object.entries(map).sort(([a], [b]) => b.localeCompare(a))
+  }, [shifts])
 
   const deleteMutation = useMutation({
     mutationFn: deleteShift,
@@ -260,53 +307,73 @@ export default function Shifts() {
 
       {isLoading ? (
         <p className="text-gray-400">Loading…</p>
+      ) : shifts.length === 0 ? (
+        <p className="text-gray-400 text-center py-8">No shifts yet. Create one to get started.</p>
       ) : (
-        <div className="space-y-2">
-          {shifts.length === 0 && (
-            <p className="text-gray-400 text-center py-8">No shifts yet. Create one to get started.</p>
-          )}
-          {shifts.map((s) => (
-            <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <StatusPill status={s.status} />
-                <span className="font-medium text-sm">{s.date}</span>
-                <span className="font-semibold text-sm truncate">{s.shiftTag}</span>
-                <span className="text-gray-400 text-xs hidden sm:inline">
-                  {s._count?.packStates ?? 0} packs
-                </span>
+        <div className="space-y-3">
+          {monthGroups.map(([monthKey, monthShifts]) => {
+            const isExpanded = !!expandedMonths[monthKey]
+            return (
+              <div key={monthKey}>
+                <button
+                  className="w-full flex items-center justify-between px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  onClick={() => setExpandedMonths((p) => ({ ...p, [monthKey]: !p[monthKey] }))}
+                >
+                  <span className="text-sm font-semibold text-gray-700">{monthLabel(monthKey)}</span>
+                  <span className="text-xs text-gray-500 flex items-center gap-1.5">
+                    {monthShifts.length} shift{monthShifts.length !== 1 ? 's' : ''}
+                    <span className="text-gray-400">{isExpanded ? '▾' : '▸'}</span>
+                  </span>
+                </button>
+                {isExpanded && (
+                  <div className="space-y-2 mt-1.5">
+                    {monthShifts.map((s) => (
+                      <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <StatusPill status={s.status} />
+                          <span className="font-medium text-sm">{s.date}</span>
+                          <span className="font-semibold text-sm truncate">{s.shiftTag}</span>
+                          <span className="text-gray-400 text-xs hidden sm:inline">
+                            {s._count?.packStates ?? 0} packs
+                          </span>
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          {s.status === 'OPEN' && (
+                            <button className="btn-primary btn-sm" onClick={() => navigate(`/shifts/${s.id}/scan`)}>
+                              Scan
+                            </button>
+                          )}
+                          {s.status === 'OPEN' && ['ADMIN', 'REVIEWER'].includes(user?.role) && (
+                            <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${s.id}/commit`)}>
+                              Commit
+                            </button>
+                          )}
+                          {s.status === 'CLOSED' && (
+                            <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${s.id}/commit`)}>
+                              View
+                            </button>
+                          )}
+                          {s.status === 'CLOSED' && isAdmin && (
+                            <button className="btn-secondary btn-sm" onClick={() => setConfirmReopenId(s.id)}>
+                              Reopen
+                            </button>
+                          )}
+                          {isAdmin && (
+                            <button
+                              className="btn-sm btn-danger"
+                              onClick={() => setConfirmDeleteId(s.id)}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="flex gap-2 flex-shrink-0">
-                {s.status === 'OPEN' && (
-                  <button className="btn-primary btn-sm" onClick={() => navigate(`/shifts/${s.id}/scan`)}>
-                    Scan
-                  </button>
-                )}
-                {s.status === 'OPEN' && ['ADMIN', 'REVIEWER'].includes(user?.role) && (
-                  <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${s.id}/commit`)}>
-                    Commit
-                  </button>
-                )}
-                {s.status === 'CLOSED' && (
-                  <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${s.id}/commit`)}>
-                    View
-                  </button>
-                )}
-                {s.status === 'CLOSED' && isAdmin && (
-                  <button className="btn-secondary btn-sm" onClick={() => setConfirmReopenId(s.id)}>
-                    Reopen
-                  </button>
-                )}
-                {isAdmin && (
-                  <button
-                    className="btn-sm btn-danger"
-                    onClick={() => setConfirmDeleteId(s.id)}
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

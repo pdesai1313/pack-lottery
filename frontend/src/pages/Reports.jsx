@@ -64,10 +64,11 @@ function getPeriodDates(period) {
   const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   if (period === 'today') return { from: today(), to: today() }
   if (period === 'week') {
-    const d = new Date(t)
-    const diff = d.getDay() === 0 ? -6 : 1 - d.getDay()
-    d.setDate(d.getDate() + diff)
-    return { from: iso(d), to: today() }
+    const sunday = new Date(t)
+    sunday.setDate(t.getDate() - t.getDay()) // rewind to Sunday
+    const saturday = new Date(sunday)
+    saturday.setDate(sunday.getDate() + 6)   // forward to Saturday
+    return { from: iso(sunday), to: iso(saturday) }
   }
   if (period === 'month') return { from: `${t.getFullYear()}-${pad(t.getMonth() + 1)}-01`, to: today() }
   if (period === 'year')  return { from: `${t.getFullYear()}-01-01`, to: today() }

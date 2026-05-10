@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getShiftPackStates, commitShift, exportCsv, updateReconciliation } from '../api/shifts'
+import { getShifts, getShiftPackStates, commitShift, exportCsv, updateReconciliation } from '../api/shifts'
 import FlagBadge, { isError } from '../components/FlagBadge'
 import StatusPill from '../components/StatusPill'
 import { useAuth } from '../context/AuthContext'
@@ -46,6 +46,8 @@ export default function CommitShift() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [recon, setRecon] = useState(null)
   const [reconSaved, setReconSaved] = useState(false)
+
+  const { data: allShifts = [] } = useQuery({ queryKey: ['shifts'], queryFn: getShifts })
 
   const { data: shift, isLoading } = useQuery({
     queryKey: ['shifts', shiftId, 'packstates'],
@@ -117,6 +119,11 @@ export default function CommitShift() {
   const flaggedPacks = packStates.filter((ps) => (ps.flags || []).length > 0)
   const unresolvedErrors = packStates.filter((ps) => (ps.flags || []).some(isError) && !overrides[ps.id])
 
+  // Shifts created before this one (lower id) on the same day that are still open
+  const openPriorSameDayShifts = shift
+    ? allShifts.filter((s) => s.date === shift.date && s.status === 'OPEN' && s.id < shiftId)
+    : []
+
   return (
     <div>
       {showConfirm && (
@@ -147,7 +154,16 @@ export default function CommitShift() {
             <button
               className="btn-primary btn-sm"
               disabled={unresolvedErrors.length > 0 || commitMutation.isPending}
-              onClick={() => { setCommitError(''); setShowConfirm(true) }}
+              onClick={() => {
+                if (openPriorSameDayShifts.length > 0) {
+                  setCommitError(
+                    `Cannot commit: "${openPriorSameDayShifts.map((s) => s.shiftTag).join(', ')}" on the same day is still open. Commit that shift first.`
+                  )
+                  return
+                }
+                setCommitError('')
+                setShowConfirm(true)
+              }}
             >
               {commitMutation.isPending ? 'Committing…' : 'Commit Shift'}
             </button>
