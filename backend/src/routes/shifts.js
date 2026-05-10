@@ -39,11 +39,22 @@ router.get('/', verifyAccessToken, async (req, res) => {
   const shifts = await prisma.shift.findMany({
     orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     include: {
-      createdBy: { select: { name: true, email: true } },
+      createdBy: { select: { name: true } },
       _count: { select: { packStates: true } },
+      packSales:  { select: { amount: true, unitsSold: true } },
+      packStates: { select: { computedAmount: true, computedUnits: true } },
     },
   })
-  res.json(shifts)
+  res.json(shifts.map((s) => {
+    const { packSales, packStates, ...rest } = s
+    const totalAmount = s.status === 'CLOSED'
+      ? packSales.reduce((sum, ps) => sum + (ps.amount || 0), 0)
+      : packStates.reduce((sum, ps) => sum + (ps.computedAmount || 0), 0)
+    const totalUnits = s.status === 'CLOSED'
+      ? packSales.reduce((sum, ps) => sum + (ps.unitsSold || 0), 0)
+      : packStates.reduce((sum, ps) => sum + (ps.computedUnits || 0), 0)
+    return { ...rest, totalAmount, totalUnits }
+  }))
 })
 
 // ── Daily summary ─────────────────────────────────────────────────────────────

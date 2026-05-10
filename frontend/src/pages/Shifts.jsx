@@ -1,16 +1,24 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
+import { ChevronDown, Trash2, ScanLine, ClipboardCheck, Eye, RotateCcw, Plus } from 'lucide-react'
 import { getShifts, createShift, deleteShift, reopenShift } from '../api/shifts'
 import { useAuth } from '../context/AuthContext'
-import StatusPill from '../components/StatusPill'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function monthLabel(key) {
   const [year, month] = key.split('-')
   return new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1)
     .toLocaleString('en-US', { month: 'long', year: 'numeric' })
 }
+
+function fmt(n) {
+  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+// ─── Create Shift Modal ───────────────────────────────────────────────────────
 
 function CreateShiftModal({ onClose, closedShifts }) {
   const qc = useQueryClient()
@@ -35,12 +43,6 @@ function CreateShiftModal({ onClose, closedShifts }) {
   }
   const filteredGroups = Object.entries(filteredGroupMap).sort(([a], [b]) => b.localeCompare(a))
 
-  useEffect(() => {
-    function onKey(e) { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   const createMutation = useMutation({
     mutationFn: () => createShift({
       date,
@@ -59,23 +61,16 @@ function CreateShiftModal({ onClose, closedShifts }) {
   const canSubmit = shiftName.trim().length > 0 && (startSource !== 'manual' || !!manualShiftId)
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
         <h3 className="text-lg font-bold mb-4">New Shift</h3>
 
         <div className="space-y-4">
-          {/* Date */}
           <div>
             <label className="label">Date</label>
-            <input
-              type="date"
-              className="input"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
+            <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
 
-          {/* Shift name */}
           <div>
             <label className="label">Shift Name</label>
             <input
@@ -89,7 +84,6 @@ function CreateShiftModal({ onClose, closedShifts }) {
             />
           </div>
 
-          {/* Start ticket source */}
           <div>
             <label className="label mb-2">Start Ticket Source</label>
             <div className="space-y-2">
@@ -113,7 +107,6 @@ function CreateShiftModal({ onClose, closedShifts }) {
             </div>
           </div>
 
-          {/* Manual shift selector */}
           {startSource === 'manual' && (
             <div>
               <label className="label">Copy Start Tickets From</label>
@@ -170,6 +163,110 @@ function CreateShiftModal({ onClose, closedShifts }) {
   )
 }
 
+// ─── Shift Card ───────────────────────────────────────────────────────────────
+
+function ShiftCard({ s, user, isAdmin, onScan, onCommit, onView, onReopen, onDelete }) {
+  const isOpen = s.status === 'OPEN'
+
+  return (
+    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-all overflow-hidden
+      ${isOpen ? 'border-l-[3px] border-l-blue-500' : 'border-l-[3px] border-l-gray-300'}`}>
+      <div className="flex items-center gap-3 px-4 py-3.5">
+
+        {/* Live / closed indicator */}
+        <div className="relative flex-shrink-0">
+          {isOpen ? (
+            <>
+              <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+              <div className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-60" />
+            </>
+          ) : (
+            <div className="w-2.5 h-2.5 rounded-full bg-gray-300" />
+          )}
+        </div>
+
+        {/* Main info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm text-gray-900 truncate">{s.shiftTag}</span>
+            <span className="text-xs text-gray-400 flex-shrink-0">{s.date}</span>
+            {isOpen && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 flex-shrink-0">
+                LIVE
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+            <span>{s._count?.packStates ?? 0} packs</span>
+            {s.createdBy?.name && <><span>·</span><span>{s.createdBy.name}</span></>}
+          </div>
+        </div>
+
+        {/* Financial total */}
+        {s.totalAmount > 0 && (
+          <div className="text-right flex-shrink-0 hidden sm:block">
+            <div className={`font-bold text-sm ${isOpen ? 'text-blue-700' : 'text-gray-800'}`}>
+              {fmt(s.totalAmount)}
+            </div>
+            <div className="text-xs text-gray-400">{s.totalUnits} units</div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {isOpen && (
+            <button
+              className="btn-primary btn-sm flex items-center gap-1.5"
+              onClick={onScan}
+            >
+              <ScanLine size={13} />
+              Scan
+            </button>
+          )}
+          {isOpen && ['ADMIN', 'REVIEWER'].includes(user?.role) && (
+            <button
+              className="btn-secondary btn-sm flex items-center gap-1.5"
+              onClick={onCommit}
+            >
+              <ClipboardCheck size={13} />
+              Commit
+            </button>
+          )}
+          {!isOpen && (
+            <button
+              className="btn-secondary btn-sm flex items-center gap-1.5"
+              onClick={onView}
+            >
+              <Eye size={13} />
+              View
+            </button>
+          )}
+          {!isOpen && isAdmin && (
+            <button
+              className="btn-secondary btn-sm flex items-center gap-1.5"
+              onClick={onReopen}
+            >
+              <RotateCcw size={13} />
+              Reopen
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              className="p-1.5 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+              onClick={onDelete}
+              title="Delete shift"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function Shifts() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -181,27 +278,25 @@ export default function Shifts() {
   const { data: shifts = [], isLoading } = useQuery({ queryKey: ['shifts'], queryFn: getShifts })
 
   const closedShifts = shifts.filter((s) => s.status === 'CLOSED')
+  const openShifts   = shifts.filter((s) => s.status === 'OPEN')
   const isAdmin = user?.role === 'ADMIN'
 
   const currentMonthKey = format(new Date(), 'yyyy-MM')
   const [expandedMonths, setExpandedMonths] = useState(() => ({ [currentMonthKey]: true }))
 
-  const monthGroups = useMemo(() => {
+  const closedMonthGroups = useMemo(() => {
     const map = {}
-    for (const s of shifts) {
+    for (const s of closedShifts) {
       const key = s.date.slice(0, 7)
       if (!map[key]) map[key] = []
       map[key].push(s)
     }
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a))
-  }, [shifts])
+  }, [closedShifts])
 
   const deleteMutation = useMutation({
     mutationFn: deleteShift,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['shifts'] })
-      setConfirmDeleteId(null)
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); setConfirmDeleteId(null) },
   })
 
   const reopenMutation = useMutation({
@@ -214,61 +309,58 @@ export default function Shifts() {
     },
   })
 
+  const shiftActions = (s) => ({
+    onScan:   () => navigate(`/shifts/${s.id}/scan`),
+    onCommit: () => navigate(`/shifts/${s.id}/commit`),
+    onView:   () => navigate(`/shifts/${s.id}/commit`),
+    onReopen: () => setConfirmReopenId(s.id),
+    onDelete: () => setConfirmDeleteId(s.id),
+  })
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Shifts</h2>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-lg font-bold tracking-tight">Shifts</h2>
+          <p className="text-xs text-gray-400 mt-0.5">{shifts.length} total · {openShifts.length} open</p>
+        </div>
         {['ADMIN', 'REVIEWER'].includes(user?.role) && (
-          <button className="btn-primary btn-sm" onClick={() => setShowCreate(true)}>
-            + New Shift
+          <button className="btn-primary btn-sm flex items-center gap-1.5" onClick={() => setShowCreate(true)}>
+            <Plus size={14} />
+            New Shift
           </button>
         )}
       </div>
 
+      {/* Create modal */}
       {showCreate && (
-        <CreateShiftModal
-          onClose={() => setShowCreate(false)}
-          closedShifts={closedShifts}
-        />
+        <CreateShiftModal onClose={() => setShowCreate(false)} closedShifts={closedShifts} />
       )}
 
-      {/* Reopen confirmation modal */}
+      {/* Reopen confirmation */}
       {confirmReopenId && (() => {
         const shift = shifts.find((s) => s.id === confirmReopenId)
-        const sameDayOthers = shifts.filter(
-          (s) => s.status === 'CLOSED' && s.date === shift?.date && s.id !== confirmReopenId
-        )
+        const sameDayOthers = shifts.filter((s) => s.status === 'CLOSED' && s.date === shift?.date && s.id !== confirmReopenId)
         return (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
               <h3 className="font-bold text-lg mb-1">Reopen this shift?</h3>
               <p className="text-gray-500 text-sm mb-3">
                 <span className="font-semibold">{shift?.shiftTag}</span> on{' '}
-                <span className="font-semibold">{shift?.date}</span> will be unlocked for editing. Existing scan data
-                is kept — re-scan any packs that need correction, update reconciliation fields, then re-commit.
+                <span className="font-semibold">{shift?.date}</span> will be unlocked for editing.
               </p>
               {sameDayOthers.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-3">
                   <p className="text-amber-800 text-xs font-medium">
                     ⚠️ {sameDayOthers.length} other committed shift{sameDayOthers.length > 1 ? 's' : ''} exist on this date
-                    ({sameDayOthers.map((s) => s.shiftTag).join(', ')}). Their start ticket chain may be affected —
-                    consider reopening and re-committing those too.
+                    ({sameDayOthers.map((s) => s.shiftTag).join(', ')}). Their start ticket chain may be affected.
                   </p>
                 </div>
               )}
               <div className="flex gap-3">
-                <button
-                  className="btn-secondary flex-1"
-                  onClick={() => setConfirmReopenId(null)}
-                  disabled={reopenMutation.isPending}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn-primary flex-1"
-                  onClick={() => reopenMutation.mutate(confirmReopenId)}
-                  disabled={reopenMutation.isPending}
-                >
+                <button className="btn-secondary flex-1" onClick={() => setConfirmReopenId(null)} disabled={reopenMutation.isPending}>Cancel</button>
+                <button className="btn-primary flex-1" onClick={() => reopenMutation.mutate(confirmReopenId)} disabled={reopenMutation.isPending}>
                   {reopenMutation.isPending ? 'Reopening…' : 'Reopen Shift'}
                 </button>
               </div>
@@ -277,27 +369,15 @@ export default function Shifts() {
         )
       })()}
 
-      {/* Delete confirmation modal */}
+      {/* Delete confirmation */}
       {confirmDeleteId && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
             <h3 className="font-bold text-lg mb-1">Delete this shift?</h3>
-            <p className="text-gray-500 text-sm mb-5">
-              All scan data and pack states for this shift will be permanently removed. This cannot be undone.
-            </p>
+            <p className="text-gray-500 text-sm mb-5">All scan data and pack states will be permanently removed.</p>
             <div className="flex gap-3">
-              <button
-                className="btn-secondary flex-1"
-                onClick={() => setConfirmDeleteId(null)}
-                disabled={deleteMutation.isPending}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-danger flex-1"
-                onClick={() => deleteMutation.mutate(confirmDeleteId)}
-                disabled={deleteMutation.isPending}
-              >
+              <button className="btn-secondary flex-1" onClick={() => setConfirmDeleteId(null)} disabled={deleteMutation.isPending}>Cancel</button>
+              <button className="btn-danger flex-1" onClick={() => deleteMutation.mutate(confirmDeleteId)} disabled={deleteMutation.isPending}>
                 {deleteMutation.isPending ? 'Deleting…' : 'Yes, Delete'}
               </button>
             </div>
@@ -306,74 +386,75 @@ export default function Shifts() {
       )}
 
       {isLoading ? (
-        <p className="text-gray-400">Loading…</p>
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />
+          ))}
+        </div>
       ) : shifts.length === 0 ? (
-        <p className="text-gray-400 text-center py-8">No shifts yet. Create one to get started.</p>
+        <div className="text-center py-16 text-gray-400">
+          <ScanLine size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="font-medium">No shifts yet</p>
+          <p className="text-xs mt-1">Create a shift to start scanning packs</p>
+        </div>
       ) : (
-        <div className="space-y-3">
-          {monthGroups.map(([monthKey, monthShifts]) => {
+        <div className="space-y-5">
+
+          {/* Active (OPEN) shifts — always visible at the top */}
+          {openShifts.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-2.5">
+                <div className="relative flex-shrink-0">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <div className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-60" />
+                </div>
+                <span className="text-[11px] font-bold text-blue-600 uppercase tracking-widest">Active</span>
+                <div className="flex-1 h-px bg-blue-100" />
+                <span className="text-xs text-blue-400">{openShifts.length} open</span>
+              </div>
+              <div className="space-y-2">
+                {openShifts.map((s) => (
+                  <ShiftCard key={s.id} s={s} user={user} isAdmin={isAdmin} {...shiftActions(s)} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Closed shifts grouped by month */}
+          {closedMonthGroups.map(([monthKey, monthShifts]) => {
             const isExpanded = !!expandedMonths[monthKey]
+            const monthTotal = monthShifts.reduce((sum, s) => sum + (s.totalAmount || 0), 0)
             return (
               <div key={monthKey}>
+                {/* Month divider header */}
                 <button
-                  className="w-full flex items-center justify-between px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="w-full flex items-center gap-3 mb-2.5 group"
                   onClick={() => setExpandedMonths((p) => ({ ...p, [monthKey]: !p[monthKey] }))}
                 >
-                  <span className="text-sm font-semibold text-gray-700">{monthLabel(monthKey)}</span>
-                  <span className="text-xs text-gray-500 flex items-center gap-1.5">
-                    {monthShifts.length} shift{monthShifts.length !== 1 ? 's' : ''}
-                    <span className="text-gray-400">{isExpanded ? '▾' : '▸'}</span>
+                  <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap flex-shrink-0 group-hover:text-gray-600 transition-colors">
+                    {monthLabel(monthKey)}
                   </span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs text-gray-400 flex-shrink-0 whitespace-nowrap">
+                    {fmt(monthTotal)} · {monthShifts.length} shift{monthShifts.length !== 1 ? 's' : ''}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-gray-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? '' : '-rotate-90'}`}
+                  />
                 </button>
+
                 {isExpanded && (
-                  <div className="space-y-2 mt-1.5">
+                  <div className="space-y-2">
                     {monthShifts.map((s) => (
-                      <div key={s.id} className="card flex items-center justify-between gap-3 py-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <StatusPill status={s.status} />
-                          <span className="font-medium text-sm">{s.date}</span>
-                          <span className="font-semibold text-sm truncate">{s.shiftTag}</span>
-                          <span className="text-gray-400 text-xs hidden sm:inline">
-                            {s._count?.packStates ?? 0} packs
-                          </span>
-                        </div>
-                        <div className="flex gap-2 flex-shrink-0">
-                          {s.status === 'OPEN' && (
-                            <button className="btn-primary btn-sm" onClick={() => navigate(`/shifts/${s.id}/scan`)}>
-                              Scan
-                            </button>
-                          )}
-                          {s.status === 'OPEN' && ['ADMIN', 'REVIEWER'].includes(user?.role) && (
-                            <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${s.id}/commit`)}>
-                              Commit
-                            </button>
-                          )}
-                          {s.status === 'CLOSED' && (
-                            <button className="btn-secondary btn-sm" onClick={() => navigate(`/shifts/${s.id}/commit`)}>
-                              View
-                            </button>
-                          )}
-                          {s.status === 'CLOSED' && isAdmin && (
-                            <button className="btn-secondary btn-sm" onClick={() => setConfirmReopenId(s.id)}>
-                              Reopen
-                            </button>
-                          )}
-                          {isAdmin && (
-                            <button
-                              className="btn-sm btn-danger"
-                              onClick={() => setConfirmDeleteId(s.id)}
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                      <ShiftCard key={s.id} s={s} user={user} isAdmin={isAdmin} {...shiftActions(s)} />
                     ))}
                   </div>
                 )}
               </div>
             )
           })}
+
         </div>
       )}
     </div>
