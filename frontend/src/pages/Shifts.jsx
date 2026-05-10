@@ -18,6 +18,32 @@ function fmt(n) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+const PERIODS = [
+  { key: 'all',    label: 'All' },
+  { key: 'today',  label: 'Today' },
+  { key: 'week',   label: 'This Week' },
+  { key: 'month',  label: 'This Month' },
+  { key: 'custom', label: 'Custom' },
+]
+
+function getPeriodDates(period, customFrom, customTo) {
+  const t = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const todayStr = iso(t)
+  if (period === 'today') return { from: todayStr, to: todayStr }
+  if (period === 'week') {
+    const sunday = new Date(t)
+    sunday.setDate(t.getDate() - t.getDay())
+    const saturday = new Date(sunday)
+    saturday.setDate(sunday.getDate() + 6)
+    return { from: iso(sunday), to: iso(saturday) }
+  }
+  if (period === 'month') return { from: `${t.getFullYear()}-${pad(t.getMonth() + 1)}-01`, to: todayStr }
+  if (period === 'custom') return customFrom && customTo ? { from: customFrom, to: customTo } : null
+  return null // 'all'
+}
+
 // ─── Create Shift Modal ───────────────────────────────────────────────────────
 
 function CreateShiftModal({ onClose, closedShifts }) {
@@ -275,11 +301,24 @@ export default function Shifts() {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [confirmReopenId, setConfirmReopenId] = useState(null)
 
+  const [period, setPeriod] = useState('month')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+
   const { data: shifts = [], isLoading } = useQuery({ queryKey: ['shifts'], queryFn: getShifts })
 
-  const closedShifts = shifts.filter((s) => s.status === 'CLOSED')
-  const openShifts   = shifts.filter((s) => s.status === 'OPEN')
   const isAdmin = user?.role === 'ADMIN'
+
+  // Open shifts always shown — never filtered out
+  const openShifts = shifts.filter((s) => s.status === 'OPEN')
+
+  // Closed shifts filtered by selected period
+  const dateRange = getPeriodDates(period, customFrom, customTo)
+  const closedShifts = useMemo(() => {
+    const all = shifts.filter((s) => s.status === 'CLOSED')
+    if (!dateRange) return all
+    return all.filter((s) => s.date >= dateRange.from && s.date <= dateRange.to)
+  }, [shifts, dateRange?.from, dateRange?.to])
 
   const currentMonthKey = format(new Date(), 'yyyy-MM')
   const [expandedMonths, setExpandedMonths] = useState(() => ({ [currentMonthKey]: true }))
@@ -323,7 +362,10 @@ export default function Shifts() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-lg font-bold tracking-tight">Shifts</h2>
-          <p className="text-xs text-gray-400 mt-0.5">{shifts.length} total · {openShifts.length} open</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {openShifts.length > 0 && <span className="text-blue-500 font-medium">{openShifts.length} active · </span>}
+            {closedShifts.length} closed{period !== 'all' ? ' in period' : ''}
+          </p>
         </div>
         {['ADMIN', 'REVIEWER'].includes(user?.role) && (
           <button className="btn-primary btn-sm flex items-center gap-1.5" onClick={() => setShowCreate(true)}>
@@ -332,6 +374,33 @@ export default function Shifts() {
           </button>
         )}
       </div>
+
+      {/* Period filter */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {PERIODS.map((p) => (
+          <button
+            key={p.key}
+            onClick={() => setPeriod(p.key)}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+              period === p.key
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Custom date range */}
+      {period === 'custom' && (
+        <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-gray-50 border border-gray-200">
+          <label className="text-xs text-gray-500 font-medium">From</label>
+          <input type="date" className="input py-1 text-sm" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+          <label className="text-xs text-gray-500 font-medium">To</label>
+          <input type="date" className="input py-1 text-sm" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+        </div>
+      )}
 
       {/* Create modal */}
       {showCreate && (
@@ -391,11 +460,20 @@ export default function Shifts() {
             <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />
           ))}
         </div>
-      ) : shifts.length === 0 ? (
+      ) : openShifts.length === 0 && closedShifts.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <ScanLine size={32} className="mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No shifts yet</p>
-          <p className="text-xs mt-1">Create a shift to start scanning packs</p>
+          {shifts.length === 0 ? (
+            <>
+              <p className="font-medium">No shifts yet</p>
+              <p className="text-xs mt-1">Create a shift to start scanning packs</p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium">No shifts in this period</p>
+              <p className="text-xs mt-1">Try selecting a different date range</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-5">
