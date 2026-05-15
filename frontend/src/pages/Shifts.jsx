@@ -339,7 +339,7 @@ export default function Shifts() {
   })
 
   const reopenMutation = useMutation({
-    mutationFn: ({ id, newDate, originalDate }) => reopenShift(id, newDate !== originalDate ? newDate : undefined),
+    mutationFn: ({ id, date, originalDate }) => reopenShift(id, date !== originalDate ? date : undefined),
     onSuccess: (data, { id }) => {
       qc.invalidateQueries({ queryKey: ['shifts'] })
       setConfirmReopen(null)
