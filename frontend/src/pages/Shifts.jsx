@@ -299,7 +299,7 @@ export default function Shifts() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
-  const [confirmReopenId, setConfirmReopenId] = useState(null)
+  const [confirmReopen, setConfirmReopen] = useState(null) // { id, originalDate, date }
 
   const [period, setPeriod] = useState('month')
   const [customFrom, setCustomFrom] = useState('')
@@ -339,12 +339,12 @@ export default function Shifts() {
   })
 
   const reopenMutation = useMutation({
-    mutationFn: reopenShift,
-    onSuccess: (data, shiftId) => {
+    mutationFn: ({ id, newDate, originalDate }) => reopenShift(id, newDate !== originalDate ? newDate : undefined),
+    onSuccess: (data, { id }) => {
       qc.invalidateQueries({ queryKey: ['shifts'] })
-      setConfirmReopenId(null)
+      setConfirmReopen(null)
       if (data.warning) alert(data.warning)
-      else navigate(`/shifts/${shiftId}/scan`)
+      else navigate(`/shifts/${id}/scan`)
     },
   })
 
@@ -352,7 +352,7 @@ export default function Shifts() {
     onScan:   () => navigate(`/shifts/${s.id}/scan`),
     onCommit: () => navigate(`/shifts/${s.id}/commit`),
     onView:   () => navigate(`/shifts/${s.id}/commit`),
-    onReopen: () => setConfirmReopenId(s.id),
+    onReopen: () => setConfirmReopen({ id: s.id, originalDate: s.date, date: s.date }),
     onDelete: () => setConfirmDeleteId(s.id),
   })
 
@@ -408,28 +408,61 @@ export default function Shifts() {
       )}
 
       {/* Reopen confirmation */}
-      {confirmReopenId && (() => {
-        const shift = shifts.find((s) => s.id === confirmReopenId)
-        const sameDayOthers = shifts.filter((s) => s.status === 'CLOSED' && s.date === shift?.date && s.id !== confirmReopenId)
+      {confirmReopen && (() => {
+        const shift = shifts.find((s) => s.id === confirmReopen.id)
+        const dateChanged = confirmReopen.date !== confirmReopen.originalDate
+        // Closed shifts on the original date (other than this one)
+        const oldDateOthers = shifts.filter(
+          (s) => s.status === 'CLOSED' && s.date === confirmReopen.originalDate && s.id !== confirmReopen.id
+        )
+        // Closed shifts already on the new date (if date changed)
+        const newDateOthers = dateChanged
+          ? shifts.filter((s) => s.status === 'CLOSED' && s.date === confirmReopen.date)
+          : []
         return (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
               <h3 className="font-bold text-lg mb-1">Reopen this shift?</h3>
-              <p className="text-gray-500 text-sm mb-3">
-                <span className="font-semibold">{shift?.shiftTag}</span> on{' '}
-                <span className="font-semibold">{shift?.date}</span> will be unlocked for editing.
+              <p className="text-gray-500 text-sm mb-4">
+                <span className="font-semibold">{shift?.shiftTag}</span> will be unlocked for re-scanning and re-committing. You can also correct the date below.
               </p>
-              {sameDayOthers.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-3">
-                  <p className="text-amber-800 text-xs font-medium">
-                    ⚠️ {sameDayOthers.length} other committed shift{sameDayOthers.length > 1 ? 's' : ''} exist on this date
-                    ({sameDayOthers.map((s) => s.shiftTag).join(', ')}). Their start ticket chain may be affected.
+
+              {/* Date correction field */}
+              <div className="mb-4">
+                <label className="label">Shift Date</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={confirmReopen.date}
+                  onChange={(e) => setConfirmReopen((p) => ({ ...p, date: e.target.value }))}
+                />
+                {dateChanged && (
+                  <p className="text-xs text-blue-600 mt-1.5">
+                    Date will change from <strong>{confirmReopen.originalDate}</strong> to <strong>{confirmReopen.date}</strong>.
+                    Start tickets will be recalculated at commit time.
                   </p>
+                )}
+              </div>
+
+              {/* Warnings */}
+              {(oldDateOthers.length > 0 || newDateOthers.length > 0) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-4 space-y-1.5">
+                  {oldDateOthers.length > 0 && (
+                    <p className="text-amber-800 text-xs">
+                      ⚠️ <strong>{oldDateOthers.map((s) => s.shiftTag).join(', ')}</strong> on {confirmReopen.originalDate} may have incorrect start tickets after this — consider reopening and re-committing {oldDateOthers.length === 1 ? 'it' : 'them'} too.
+                    </p>
+                  )}
+                  {newDateOthers.length > 0 && (
+                    <p className="text-amber-800 text-xs">
+                      ⚠️ <strong>{newDateOthers.map((s) => s.shiftTag).join(', ')}</strong> already exist on {confirmReopen.date} — their start ticket chain may be affected after re-commit.
+                    </p>
+                  )}
                 </div>
               )}
+
               <div className="flex gap-3">
-                <button className="btn-secondary flex-1" onClick={() => setConfirmReopenId(null)} disabled={reopenMutation.isPending}>Cancel</button>
-                <button className="btn-primary flex-1" onClick={() => reopenMutation.mutate(confirmReopenId)} disabled={reopenMutation.isPending}>
+                <button className="btn-secondary flex-1" onClick={() => setConfirmReopen(null)} disabled={reopenMutation.isPending}>Cancel</button>
+                <button className="btn-primary flex-1" onClick={() => reopenMutation.mutate(confirmReopen)} disabled={reopenMutation.isPending || !confirmReopen.date}>
                   {reopenMutation.isPending ? 'Reopening…' : 'Reopen Shift'}
                 </button>
               </div>

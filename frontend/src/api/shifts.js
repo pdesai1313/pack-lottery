@@ -23,4 +23,5 @@ export const exportCsv = async (shiftId, filename) => {
   URL.revokeObjectURL(url)
 }
 export const deleteShift = (shiftId) => api.delete(`/shifts/${shiftId}`).then((r) => r.data)
-export const reopenShift = (shiftId) => api.post(`/shifts/${shiftId}/reopen`).then((r) => r.data)
+export const reopenShift = (shiftId, newDate) =>
+  api.post(`/shifts/${shiftId}/reopen`, newDate ? { newDate } : {}).then((r) => r.data)

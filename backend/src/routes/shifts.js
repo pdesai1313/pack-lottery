@@ -449,26 +449,60 @@ router.post('/:id/reopen', verifyAccessToken, requireRole(['ADMIN']), async (req
   if (!shift) return res.status(404).json({ error: 'Shift not found' })
   if (shift.status !== 'CLOSED') return res.status(409).json({ error: 'Shift is not closed' })
 
-  const otherClosedCount = await prisma.shift.count({
+  // Optional date correction
+  const { newDate } = req.body || {}
+  if (newDate && !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+    return res.status(400).json({ error: 'Invalid date format — use YYYY-MM-DD' })
+  }
+  const targetDate = newDate || shift.date
+  const dateChanged = targetDate !== shift.date
+
+  // Closed shifts on the OLD date (other than this one) — their chain may break
+  const oldDateOtherCount = await prisma.shift.count({
     where: { date: shift.date, status: 'CLOSED', id: { not: shiftId } },
   })
 
+  // Closed shifts already on the NEW date — their chain may be affected
+  const newDateOtherCount = dateChanged
+    ? await prisma.shift.count({ where: { date: targetDate, status: 'CLOSED' } })
+    : 0
+
   await prisma.$transaction(async (tx) => {
+    await tx.shift.update({
+      where: { id: shiftId },
+      data: { status: 'OPEN', date: targetDate },
+    })
     await tx.packState.updateMany({
       where: { shiftId },
-      data: { status: 'OPEN', overrideReason: null },
+      data: {
+        status: 'OPEN',
+        overrideReason: null,
+        // Clear stored start tickets when date changes — they are date-dependent and will
+        // be recomputed correctly by getEffectiveStartTicket at commit time.
+        // End tickets (actual scanned barcodes) are preserved.
+        ...(dateChanged ? { startTicket: null } : {}),
+      },
     })
-    await tx.shift.update({ where: { id: shiftId }, data: { status: 'OPEN' } })
   })
 
-  await audit(prisma, req.user.id, 'UPDATE', 'SHIFT', shiftId, `Reopened shift ${shift.date} — ${shift.shiftTag} for re-commit`)
+  const warnings = []
+  if (oldDateOtherCount > 0) {
+    warnings.push(
+      `${oldDateOtherCount} committed shift(s) on ${shift.date} may now have incorrect start tickets — consider reopening and re-committing them too.`
+    )
+  }
+  if (dateChanged && newDateOtherCount > 0) {
+    warnings.push(
+      `${newDateOtherCount} committed shift(s) already exist on ${targetDate} — their start ticket chain may be affected after you re-commit.`
+    )
+  }
 
-  res.json({
-    status: 'ok',
-    warning: otherClosedCount > 0
-      ? `${otherClosedCount} other committed shift(s) exist on ${shift.date}. Their start ticket chain may be affected — consider reopening and re-committing them too.`
-      : null,
-  })
+  await audit(
+    prisma, req.user.id, 'UPDATE', 'SHIFT', shiftId,
+    `Reopened shift ${shift.date}${dateChanged ? ` → ${targetDate}` : ''} — ${shift.shiftTag} for re-commit`
+  )
+
+  res.json({ status: 'ok', warning: warnings.length > 0 ? warnings.join(' ') : null })
 })
 
 // ── Delete shift ──────────────────────────────────────────────────────────────
