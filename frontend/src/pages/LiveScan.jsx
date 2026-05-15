@@ -489,7 +489,7 @@ export default function LiveScan() {
                 const displayEnd = ps.endTicket ?? (liveVal && mode === 'scanner' ? liveExtracted : null)
 
                 // Row background
-                const rowBg = isActive  ? 'bg-blue-50'
+                const rowBg = isActive  ? 'bg-blue-100'
                   : hasError            ? 'bg-red-50'
                   : hasWarning          ? 'bg-amber-50/70'
                   : isScanned           ? (idx % 2 === 0 ? 'bg-emerald-50/50' : 'bg-emerald-50/80')
@@ -497,7 +497,8 @@ export default function LiveScan() {
                   : 'bg-slate-50/70'
 
                 // Left-border accent color
-                const accentColor = hasError   ? 'bg-red-500'
+                const accentColor = isActive   ? 'bg-blue-500'
+                  : hasError                   ? 'bg-red-500'
                   : hasWarning                 ? 'bg-amber-400'
                   : isScanned                  ? 'bg-emerald-500'
                   : 'bg-transparent'
@@ -512,7 +513,7 @@ export default function LiveScan() {
                   : 'text-emerald-700 font-semibold'
 
                 // Sticky cell background (must be solid, no opacity)
-                const stickyBg = isActive  ? 'bg-blue-50'
+                const stickyBg = isActive  ? 'bg-blue-100'
                   : hasError               ? 'bg-red-50'
                   : hasWarning             ? 'bg-amber-50'
                   : isScanned              ? 'bg-emerald-50'
