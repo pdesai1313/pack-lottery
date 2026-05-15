@@ -722,13 +722,20 @@ export default function LiveScan() {
                                 else setRescanPsId(null)
                               }}
                             />
-                          ) : ps.rawBarcode ? (
+                          ) : isScanned ? (
                             <div className="flex items-center gap-1.5">
-                              <span className="font-mono text-[10px] text-gray-400 truncate" style={{ maxWidth: '92px' }} title={ps.rawBarcode}>
-                                {ps.rawBarcode}
-                              </span>
+                              {ps.rawBarcode && (
+                                <span className="font-mono text-[10px] text-gray-400 truncate" style={{ maxWidth: '80px' }} title={ps.rawBarcode}>
+                                  {ps.rawBarcode}
+                                </span>
+                              )}
                               <button
-                                className="flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border border-gray-200 text-blue-600 hover:bg-blue-50 transition-colors"
+                                className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border transition-colors ${
+                                  hasError ? 'border-red-300 text-red-600 hover:bg-red-50'
+                                  : hasWarning ? 'border-amber-300 text-amber-600 hover:bg-amber-50'
+                                  : 'border-gray-200 text-blue-600 hover:bg-blue-50'
+                                }`}
+                                title="Re-scan or enter a new ticket number for this pack"
                                 onClick={() => setRescanPsId(ps.id)}
                               >
                                 Fix
