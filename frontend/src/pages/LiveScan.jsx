@@ -286,10 +286,10 @@ export default function LiveScan() {
   // Queue infrastructure
   const scanQueue = useRef([])
   const processingQueue = useRef(false)
-  const claimedPackIds = useRef(new Set())   // packs with in-flight API calls
-  const processedPackIds = useRef(new Set()) // packs sent OK but query not yet refreshed
-  const packStatesRef = useRef([])           // always-fresh copy for queue callbacks
-  const drainQueueRef = useRef(null)         // updated each render to avoid stale closure
+  const claimedPackIds = useRef(new Set()) // packs with in-flight API calls
+  const rescanIdxRef = useRef(0)           // position pointer for wrap-around re-scan
+  const packStatesRef = useRef([])         // always-fresh copy for queue callbacks
+  const drainQueueRef = useRef(null)       // updated each render to avoid stale closure
   const globalInputRef = useRef(null)
 
   const { data: shift, isLoading } = useQuery({
@@ -300,12 +300,9 @@ export default function LiveScan() {
 
   const packStates = shift?.packStates || []
 
-  // Keep packStatesRef fresh; remove processedPackIds entries once query confirms scan
+  // Keep packStatesRef fresh
   useEffect(() => {
     packStatesRef.current = packStates
-    for (const ps of packStates) {
-      if (ps.endTicket != null) processedPackIds.current.delete(ps.packId)
-    }
   }, [packStates])
 
   // Auto-focus global input when shift first loads (if open)
@@ -321,14 +318,28 @@ export default function LiveScan() {
       return
     }
     const states = packStatesRef.current
-    const nextPack = states.find((ps) =>
+
+    // Pass 1: next unscanned pack in order (initial fill)
+    let nextPack = states.find((ps) =>
       ps.endTicket == null &&
       ps.status !== 'CLOSED' &&
-      !claimedPackIds.current.has(ps.packId) &&
-      !processedPackIds.current.has(ps.packId)
+      !claimedPackIds.current.has(ps.packId)
     )
+
+    // Pass 2: all packs scanned — re-scan sequentially from current position
     if (!nextPack) {
-      // No more packs to fill — discard remaining queue items
+      for (let i = 0; i < states.length; i++) {
+        const idx = (rescanIdxRef.current + i) % states.length
+        const ps = states[idx]
+        if (ps.status !== 'CLOSED' && !claimedPackIds.current.has(ps.packId)) {
+          nextPack = ps
+          rescanIdxRef.current = (idx + 1) % states.length
+          break
+        }
+      }
+    }
+
+    if (!nextPack) {
       scanQueue.current = []
       setQueueStatus({ pending: 0, current: null })
       return
@@ -349,7 +360,6 @@ export default function LiveScan() {
     mutationFn: ({ packId, ticket }) => scanTicket(shiftId, packId, ticket),
     onSuccess: (_, { packId, psId }) => {
       claimedPackIds.current.delete(packId)
-      processedPackIds.current.add(packId)
       processingQueue.current = false
       setRowErrors((p) => ({ ...p, [psId]: null }))
       setQueueStatus((s) => ({ ...s, current: null }))
