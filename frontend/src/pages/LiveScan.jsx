@@ -279,18 +279,9 @@ export default function LiveScan() {
   const [panelOpen, setPanelOpen] = useState(true)
   const [editingStart, setEditingStart] = useState({})
   const [activeRow, setActiveRow] = useState(null)
-  const [globalInputVal, setGlobalInputVal] = useState('')
-  const [queueStatus, setQueueStatus] = useState({ pending: 0, current: null })
-  const [rescanPsId, setRescanPsId] = useState(null)
 
-  // Queue infrastructure
-  const scanQueue = useRef([])
-  const processingQueue = useRef(false)
-  const claimedPackIds = useRef(new Set()) // packs with in-flight API calls
-  const rescanIdxRef = useRef(0)           // position pointer for wrap-around re-scan
-  const packStatesRef = useRef([])         // always-fresh copy for queue callbacks
-  const drainQueueRef = useRef(null)       // updated each render to avoid stale closure
-  const globalInputRef = useRef(null)
+  const inputRefs = useRef({})
+  const justPressedEnter = useRef({}) // prevents blur from double-submitting after Enter
 
   const { data: shift, isLoading } = useQuery({
     queryKey: ['shifts', shiftId, 'packstates'],
@@ -300,94 +291,21 @@ export default function LiveScan() {
 
   const packStates = shift?.packStates || []
 
-  // Keep packStatesRef fresh
+  // Focus first unscanned input when shift loads
   useEffect(() => {
-    packStatesRef.current = packStates
-  }, [packStates])
-
-  // Auto-focus global input when shift first loads (if open)
-  useEffect(() => {
-    if (shift && shift.status !== 'CLOSED') globalInputRef.current?.focus()
+    if (!packStates.length) return
+    const first = packStates.find((ps) => ps.endTicket == null && ps.status !== 'CLOSED')
+    if (first) setTimeout(() => inputRefs.current[first.id]?.focus(), 100)
   }, [shift?.id])
 
-  // Drain queue one item at a time — safe to call anytime
-  function drainQueue() {
-    if (processingQueue.current) return
-    if (scanQueue.current.length === 0) {
-      setQueueStatus({ pending: 0, current: null })
-      return
-    }
-    const states = packStatesRef.current
-
-    // Pass 1: next unscanned pack in order (initial fill)
-    let nextPack = states.find((ps) =>
-      ps.endTicket == null &&
-      ps.status !== 'CLOSED' &&
-      !claimedPackIds.current.has(ps.packId)
-    )
-
-    // Pass 2: all packs scanned — re-scan sequentially from current position
-    if (!nextPack) {
-      for (let i = 0; i < states.length; i++) {
-        const idx = (rescanIdxRef.current + i) % states.length
-        const ps = states[idx]
-        if (ps.status !== 'CLOSED' && !claimedPackIds.current.has(ps.packId)) {
-          nextPack = ps
-          rescanIdxRef.current = (idx + 1) % states.length
-          break
-        }
-      }
-    }
-
-    if (!nextPack) {
-      scanQueue.current = []
-      setQueueStatus({ pending: 0, current: null })
-      return
-    }
-    const rawTicket = scanQueue.current.shift()
-    const ticket = isBarcode(rawTicket) ? extractFromBarcode(rawTicket) : rawTicket
-    processingQueue.current = true
-    claimedPackIds.current.add(nextPack.packId)
-    setQueueStatus({ pending: scanQueue.current.length, current: ticket })
-    queueScanMutation.mutate({ packId: nextPack.packId, ticket, psId: nextPack.id })
-  }
-
-  // Keep ref fresh on every render so async callbacks always call latest version
-  drainQueueRef.current = drainQueue
-
-  // Queue-based scan mutation (serial, one at a time)
-  const queueScanMutation = useMutation({
-    mutationFn: ({ packId, ticket }) => scanTicket(shiftId, packId, ticket),
-    onSuccess: (_, { packId, psId }) => {
-      claimedPackIds.current.delete(packId)
-      processingQueue.current = false
-      setRowErrors((p) => ({ ...p, [psId]: null }))
-      setQueueStatus((s) => ({ ...s, current: null }))
-      qc.invalidateQueries({ queryKey: ['shifts', shiftId, 'packstates'] })
-      drainQueueRef.current()
-    },
-    onError: (e, { packId, psId }) => {
-      claimedPackIds.current.delete(packId)
-      processingQueue.current = false
-      setRowErrors((p) => ({ ...p, [psId]: e.response?.data?.error || 'Scan failed' }))
-      setQueueStatus((s) => ({ ...s, current: null }))
-      qc.invalidateQueries({ queryKey: ['shifts', shiftId, 'packstates'] })
-      drainQueueRef.current() // continue with remaining queue items
-    },
-  })
-
-  // Direct scan mutation for per-row Fix / manual mode
-  const directScanMutation = useMutation({
+  const scanMutation = useMutation({
     mutationFn: ({ packId, ticket }) => scanTicket(shiftId, packId, ticket),
     onSuccess: (_, { psId }) => {
       qc.invalidateQueries({ queryKey: ['shifts', shiftId, 'packstates'] })
-      setRescanPsId(null)
-      setRowInputs((p) => ({ ...p, [psId]: { ...p[psId], value: '' } }))
       setRowErrors((p) => ({ ...p, [psId]: null }))
-      globalInputRef.current?.focus()
     },
     onError: (e, { psId }) => {
-      setRowErrors((p) => ({ ...p, [psId]: e.response?.data?.error || 'Scan failed' }))
+      setRowErrors((p) => ({ ...p, [psId]: e.response?.data?.error || 'Failed' }))
     },
   })
 
@@ -397,34 +315,41 @@ export default function LiveScan() {
   })
 
   function getMode(psId) { return rowInputs[psId]?.mode || 'scanner' }
-  function setMode(psId, mode) { setRowInputs((p) => ({ ...p, [psId]: { ...p[psId], mode } })) }
+  function setMode(psId, mode) {
+    setRowInputs((p) => ({ ...p, [psId]: { ...p[psId], mode } }))
+    setTimeout(() => inputRefs.current[psId]?.focus(), 50)
+  }
   function getValue(psId) { return rowInputs[psId]?.value || '' }
   function setValue(psId, value) { setRowInputs((p) => ({ ...p, [psId]: { ...p[psId], value } })) }
 
-  // Push barcode into queue and kick off draining
-  function enqueue(raw) {
-    const val = raw.trim()
-    if (!val) return
-    scanQueue.current.push(val)
-    setGlobalInputVal('')
-    setQueueStatus((s) => ({ ...s, pending: scanQueue.current.length }))
-    drainQueueRef.current()
-  }
-
-  // Submit from a manual-mode row input (direct number entry, no barcode extraction)
-  function submitManual(ps, rawValue) {
+  function submit(ps, idx, rawValue) {
     const val = rawValue.trim()
     if (!val) return
-    directScanMutation.mutate({ packId: ps.packId, ticket: val, psId: ps.id })
+    const mode = getMode(ps.id)
+    const ticket = (mode === 'scanner' && isBarcode(val)) ? extractFromBarcode(val) : val
+    // Clear input and advance focus immediately — don't wait for the API response.
+    // This is the fix for the race condition: the next barcode scanned will land in
+    // the correct (next) input because focus has already moved.
     setValue(ps.id, '')
+    const nextPs = packStates[idx + 1]
+    if (nextPs) setTimeout(() => inputRefs.current[nextPs.id]?.focus(), 0)
+    scanMutation.mutate({ packId: ps.packId, ticket, psId: ps.id })
   }
 
-  // Submit from the per-row Fix input (barcode extraction applies)
-  function submitFix(ps, rawValue) {
-    const val = rawValue.trim()
-    if (!val) return
-    const ticket = isBarcode(val) ? extractFromBarcode(val) : val
-    directScanMutation.mutate({ packId: ps.packId, ticket, psId: ps.id })
+  function handleKeyDown(e, ps, idx) {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    justPressedEnter.current[ps.id] = true
+    submit(ps, idx, getValue(ps.id))
+  }
+
+  function handleBlur(e, ps, idx) {
+    // Skip if Enter already handled this — the input blurs as focus moves away
+    if (justPressedEnter.current[ps.id]) {
+      justPressedEnter.current[ps.id] = false
+      return
+    }
+    submit(ps, idx, e.target.value)
   }
 
   if (isLoading) return (
@@ -510,45 +435,6 @@ export default function LiveScan() {
         </div>
       )}
 
-      {/* ── Global scan input ─────────────────────────────────────────────── */}
-      {!isClosed && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border-2 border-blue-400 bg-blue-50 px-4 py-2.5 shadow-sm">
-          <span className="text-blue-400 text-base flex-shrink-0 select-none">⌖</span>
-          <input
-            ref={globalInputRef}
-            className="flex-1 bg-transparent border-none outline-none text-sm font-mono text-blue-900 placeholder-blue-300 min-w-0"
-            placeholder="Scan barcode here — packs fill in order automatically"
-            value={globalInputVal}
-            onChange={(e) => setGlobalInputVal(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); enqueue(globalInputVal) }
-            }}
-            onBlur={() => {
-              // Re-focus unless another input (Fix, manual, start edit) took focus
-              setTimeout(() => {
-                const ae = document.activeElement
-                if (ae && ae !== globalInputRef.current && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return
-                globalInputRef.current?.focus()
-              }, 150)
-            }}
-          />
-          {queueStatus.current && (
-            <span className="flex-shrink-0 flex items-center gap-1.5 text-xs text-blue-600">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-              processing
-            </span>
-          )}
-          {queueStatus.pending > 0 && (
-            <span className="flex-shrink-0 text-xs font-semibold bg-blue-500 text-white px-2 py-0.5 rounded-full">
-              {queueStatus.pending} queued
-            </span>
-          )}
-          {!queueStatus.current && queueStatus.pending === 0 && (
-            <span className="flex-shrink-0 text-xs text-blue-300 font-medium">ready</span>
-          )}
-        </div>
-      )}
-
       {/* ── Filter bar ────────────────────────────────────────────────────── */}
       <FilterBar
         filter={filter} onFilter={setFilter}
@@ -597,10 +483,10 @@ export default function LiveScan() {
                 const isScanned = ps.endTicket != null
                 const isActive  = activeRow === ps.id
                 const mode = getMode(ps.id)
-                const liveVal = getValue(ps.id) // only used in manual mode
+                const liveVal = getValue(ps.id)
 
-                // In manual mode, show the typed value as a preview end ticket
-                const displayEnd = ps.endTicket ?? (mode === 'manual' && liveVal ? liveVal : null)
+                const liveExtracted = liveVal && isBarcode(liveVal) ? extractFromBarcode(liveVal) : liveVal || null
+                const displayEnd = ps.endTicket ?? (liveVal && mode === 'scanner' ? liveExtracted : null)
 
                 // Row background
                 const rowBg = isActive  ? 'bg-blue-50'
@@ -718,59 +604,29 @@ export default function LiveScan() {
                         </span>
                       ) : mode === 'scanner' ? (
                         <div>
-                          {rescanPsId === ps.id ? (
-                            <input
-                              autoFocus
-                              className="input w-36 text-xs py-1.5 font-mono border-blue-400 focus:ring-blue-300"
-                              placeholder="Rescan barcode…"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') { e.preventDefault(); submitFix(ps, e.target.value) }
-                                if (e.key === 'Escape') { setRescanPsId(null); globalInputRef.current?.focus() }
-                              }}
-                              onBlur={(e) => {
-                                if (e.target.value.trim()) submitFix(ps, e.target.value)
-                                else setRescanPsId(null)
-                              }}
-                            />
-                          ) : isScanned ? (
-                            <div className="flex items-center gap-1.5">
-                              {ps.rawBarcode && (
-                                <span className="font-mono text-[10px] text-gray-400 truncate" style={{ maxWidth: '80px' }} title={ps.rawBarcode}>
-                                  {ps.rawBarcode}
-                                </span>
-                              )}
-                              <button
-                                className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border transition-colors ${
-                                  hasError ? 'border-red-300 text-red-600 hover:bg-red-50'
-                                  : hasWarning ? 'border-amber-300 text-amber-600 hover:bg-amber-50'
-                                  : 'border-gray-200 text-blue-600 hover:bg-blue-50'
-                                }`}
-                                title="Re-scan or enter a new ticket number for this pack"
-                                onClick={() => setRescanPsId(ps.id)}
-                              >
-                                Fix
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-gray-300 text-xs">—</span>
+                          <input
+                            ref={(el) => (inputRefs.current[ps.id] = el)}
+                            className={`input w-36 text-xs py-1.5 font-mono transition-all duration-100 focus:ring-2 ${
+                              hasError    ? 'border-red-400 focus:ring-red-300'
+                              : isScanned ? 'border-emerald-400 focus:ring-emerald-300'
+                              : 'border-blue-300 focus:ring-blue-300'
+                            }`}
+                            type="text"
+                            placeholder="Scan barcode…"
+                            value={liveVal}
+                            onChange={(e) => setValue(ps.id, e.target.value)}
+                            onFocus={() => setActiveRow(ps.id)}
+                            onBlur={(e) => { setActiveRow(null); handleBlur(e, ps, idx) }}
+                            onKeyDown={(e) => handleKeyDown(e, ps, idx)}
+                          />
+                          {ps.rawBarcode && !liveVal && (
+                            <p className="font-mono text-[10px] text-gray-400 truncate max-w-[144px] mt-0.5" title={ps.rawBarcode}>
+                              {ps.rawBarcode}
+                            </p>
                           )}
                         </div>
                       ) : (
-                        /* Manual mode: per-row input for direct number entry */
-                        <input
-                          className={`input w-28 text-xs py-1.5 font-mono ${
-                            hasError   ? 'border-red-400 focus:ring-red-300'
-                            : isScanned ? 'border-emerald-400 focus:ring-emerald-300'
-                            : 'border-blue-300 focus:ring-blue-300'
-                          }`}
-                          type="text"
-                          placeholder="Enter ticket #…"
-                          value={liveVal}
-                          onChange={(e) => setValue(ps.id, e.target.value)}
-                          onFocus={() => setActiveRow(ps.id)}
-                          onBlur={(e) => { setActiveRow(null); submitManual(ps, e.target.value) }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitManual(ps, getValue(ps.id)) } }}
-                        />
+                        <span className="text-gray-400 text-xs italic">manual mode</span>
                       )}
                       {rowErrors[ps.id] && (
                         <p className="text-red-600 text-[10px] font-medium mt-1 bg-red-50 px-1 py-0.5 rounded">
@@ -781,7 +637,23 @@ export default function LiveScan() {
 
                     {/* End */}
                     <td className="px-3 py-2.5 text-right">
-                      <span className="font-mono text-xs font-semibold tabular-nums">{displayEnd ?? '—'}</span>
+                      {isClosed || mode === 'scanner' ? (
+                        <span className="font-mono text-xs font-semibold tabular-nums">{displayEnd ?? '—'}</span>
+                      ) : (
+                        <input
+                          ref={(el) => (inputRefs.current[ps.id] = el)}
+                          className={`input w-16 text-xs py-1.5 font-mono text-right ${
+                            hasError ? 'border-red-400' : isScanned ? 'border-emerald-400' : ''
+                          }`}
+                          type="text"
+                          placeholder="#"
+                          value={liveVal}
+                          onChange={(e) => setValue(ps.id, e.target.value)}
+                          onFocus={() => setActiveRow(ps.id)}
+                          onBlur={(e) => { setActiveRow(null); handleBlur(e, ps, idx) }}
+                          onKeyDown={(e) => handleKeyDown(e, ps, idx)}
+                        />
+                      )}
                     </td>
 
                     {/* Units */}
