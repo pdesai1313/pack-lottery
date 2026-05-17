@@ -25,6 +25,7 @@ model User {
   shifts         Shift[]        @relation("ShiftCreatedBy")
   groceryEntries GroceryEntry[] @relation("GroceryPreparedBy")
   auditLogs      AuditLog[]     @relation("AuditLogUser")
+  posImports     PosImport[]    @relation("PosImportCreatedBy")
 
   @@map("users")
 }
@@ -125,6 +126,8 @@ model PackSale {
 model AppSettings {
   id               Int      @id @default(1)
   toleranceTickets Int      @default(2) @map("tolerance_tickets")
+  posApiToken      String   @default("") @map("pos_api_token")
+  posStoreId       String   @default("") @map("pos_store_id")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("app_settings")
@@ -147,6 +150,25 @@ model GroceryEntry {
   preparedBy User @relation("GroceryPreparedBy", fields: [preparedById], references: [id])
 
   @@map("grocery_entries")
+}
+
+model PosImport {
+  id          Int      @id @default(autoincrement())
+  date        String   @unique
+  total       Int
+  cash        Int
+  creditDebit Int      @map("credit_debit")
+  ebtSnap     Int      @map("ebt_snap")
+  ebtCash     Int      @map("ebt_cash")
+  check       Int
+  cashOnHand  Int      @map("cash_on_hand")
+  overShort   Int      @map("over_short")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdById Int      @map("created_by_id")
+  createdBy   User     @relation("PosImportCreatedBy", fields: [createdById], references: [id])
+
+  @@map("pos_imports")
 }
 
 model AuditLog {

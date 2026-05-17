@@ -33,6 +33,59 @@ function SettingsPanel() {
   )
 }
 
+function PosSettingsPanel() {
+  const qc = useQueryClient()
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+  const [token, setToken] = useState('')
+  const [storeId, setStoreId] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (settings) {
+      setToken(settings.posApiToken || '')
+      setStoreId(settings.posStoreId || '')
+    }
+  }, [settings])
+
+  const mutation = useMutation({
+    mutationFn: () => updateSettings({ posApiToken: token, posStoreId: storeId }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
+  })
+
+  return (
+    <div className="card mb-6">
+      <h3 className="font-medium mb-3">POS Integration</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className="label">API Token</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="u53770-..."
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+          <p className="text-gray-400 text-xs mt-1">Token from NRS POS URL (long-lived, paste once)</p>
+        </div>
+        <div>
+          <label className="label">Store ID</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="65302"
+            value={storeId}
+            onChange={(e) => setStoreId(e.target.value)}
+          />
+          <p className="text-gray-400 text-xs mt-1">Your store ID from the POS URL</p>
+        </div>
+      </div>
+      <button className="btn-primary btn-sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+        {saved ? '✓ Saved' : 'Save'}
+      </button>
+    </div>
+  )
+}
+
 function UsersPanel() {
   const qc = useQueryClient()
   const { data: users = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: getUsers })
@@ -113,6 +166,7 @@ export default function Settings() {
     <div>
       <h2 className="text-lg font-semibold mb-4">Settings &amp; Users</h2>
       <SettingsPanel />
+      <PosSettingsPanel />
       <UsersPanel />
     </div>
   )
