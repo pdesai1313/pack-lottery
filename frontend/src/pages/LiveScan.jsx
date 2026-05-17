@@ -331,8 +331,8 @@ export default function LiveScan() {
     // This is the fix for the race condition: the next barcode scanned will land in
     // the correct (next) input because focus has already moved.
     setValue(ps.id, '')
-    const nextPs = packStates[idx + 1]
-    if (nextPs) setTimeout(() => inputRefs.current[nextPs.id]?.focus(), 0)
+    const nextPs = visiblePackStates[idx + 1]
+    if (nextPs) inputRefs.current[nextPs.id]?.focus()
     scanMutation.mutate({ packId: ps.packId, ticket, psId: ps.id })
   }
 
@@ -351,6 +351,16 @@ export default function LiveScan() {
     }
     submit(ps, idx, e.target.value)
   }
+
+  const visiblePackStates = packStates.filter((ps) => {
+    const flags = ps.flags || []
+    if (search && !ps.pack.packId.toLowerCase().includes(search.toLowerCase())) return false
+    if (filter === 'errors')    return flags.some(isError)
+    if (filter === 'warnings')  return flags.length > 0 && !flags.some(isError)
+    if (filter === 'ok')        return ps.endTicket != null && flags.length === 0
+    if (filter === 'unscanned') return ps.endTicket == null
+    return true
+  })
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-40 text-gray-400 text-sm">Loading shift…</div>
@@ -372,16 +382,6 @@ export default function LiveScan() {
     ok:        packStates.filter((ps) => ps.endTicket != null && (ps.flags || []).length === 0).length,
     unscanned: packStates.filter((ps) => ps.endTicket == null).length,
   }
-
-  const visiblePackStates = packStates.filter((ps) => {
-    const flags = ps.flags || []
-    if (search && !ps.pack.packId.toLowerCase().includes(search.toLowerCase())) return false
-    if (filter === 'errors')    return flags.some(isError)
-    if (filter === 'warnings')  return flags.length > 0 && !flags.some(isError)
-    if (filter === 'ok')        return ps.endTicket != null && flags.length === 0
-    if (filter === 'unscanned') return ps.endTicket == null
-    return true
-  })
 
   return (
     <div>
