@@ -275,6 +275,28 @@ export default function PosImport() {
                 )
               })}
             </tbody>
+            {imports.length > 0 && (() => {
+              const sum = (key) => imports.reduce((acc, e) => acc + e[key], 0)
+              const totalOs = sum('overShort')
+              return (
+                <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                  <tr>
+                    <td className="px-3 py-2.5 text-xs font-bold text-gray-700">TOTAL</td>
+                    <td className="px-3 py-2.5 text-xs text-right font-bold font-mono tabular-nums">{fmt(sum('total'))}</td>
+                    <td className="px-3 py-2.5 text-xs text-right font-bold font-mono tabular-nums">{fmt(sum('cash'))}</td>
+                    <td className="px-3 py-2.5 text-xs text-right font-bold font-mono tabular-nums">{fmt(sum('creditDebit'))}</td>
+                    <td className="px-3 py-2.5 text-xs text-right font-bold font-mono tabular-nums">{fmt(sum('ebtSnap'))}</td>
+                    <td className="px-3 py-2.5 text-xs text-right font-bold font-mono tabular-nums">{fmt(sum('ebtCash'))}</td>
+                    <td className="px-3 py-2.5 text-xs text-right font-bold font-mono tabular-nums">{fmt(sum('check'))}</td>
+                    <td className="px-3 py-2.5 text-xs text-right font-bold font-mono tabular-nums">{fmt(sum('cashOnHand'))}</td>
+                    <td className={`px-3 py-2.5 text-xs text-right font-bold font-mono tabular-nums ${totalOs >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {totalOs >= 0 ? '+' : ''}{fmt(totalOs)}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )
+            })()}
           </table>
         </div>
       </div>
