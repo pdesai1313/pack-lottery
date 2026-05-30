@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getReport } from '../api/reports'
 
@@ -70,10 +70,19 @@ function getPeriodDates(period) {
     saturday.setDate(sunday.getDate() + 6)   // forward to Saturday
     return { from: iso(sunday), to: iso(saturday) }
   }
+  if (period === 'last_week') {
+    const lastSunday = new Date(t)
+    lastSunday.setDate(t.getDate() - t.getDay() - 7)
+    const lastSaturday = new Date(lastSunday)
+    lastSaturday.setDate(lastSunday.getDate() + 6)
+    return { from: iso(lastSunday), to: iso(lastSaturday) }
+  }
   if (period === 'month') return { from: `${t.getFullYear()}-${pad(t.getMonth() + 1)}-01`, to: today() }
   if (period === 'year')  return { from: `${t.getFullYear()}-01-01`, to: today() }
   return null
 }
+
+const PAGE_SIZE = 7
 
 function SummaryCard({ label, value, sub, highlight }) {
   const color  = highlight == null ? 'text-gray-900' : highlight >= 0 ? 'text-green-700' : 'text-red-600'
@@ -108,6 +117,8 @@ export default function Reports() {
   const [expanded, setExpanded] = useState({})
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [dayPage, setDayPage] = useState(1)
+  useEffect(() => { setDayPage(1) }, [period, customFrom, customTo])
 
   const dates = period === 'custom'
     ? (customFrom && customTo ? { from: customFrom, to: customTo } : null)
@@ -121,12 +132,16 @@ export default function Reports() {
 
   const s = data?.summary
   const periods = [
-    { key: 'today', label: 'Today' },
-    { key: 'week',  label: 'This Week' },
-    { key: 'month', label: 'This Month' },
-    { key: 'year',  label: 'This Year' },
-    { key: 'custom', label: 'Custom' },
+    { key: 'today',     label: 'Today' },
+    { key: 'week',      label: 'This Week' },
+    { key: 'last_week', label: 'Last Week' },
+    { key: 'month',     label: 'This Month' },
+    { key: 'year',      label: 'This Year' },
+    { key: 'custom',    label: 'Custom' },
   ]
+
+  const totalDayPages = data ? Math.ceil(data.byDay.length / PAGE_SIZE) : 0
+  const paginatedDays = data ? data.byDay.slice((dayPage - 1) * PAGE_SIZE, dayPage * PAGE_SIZE) : []
 
   return (
     <div>
@@ -236,7 +251,7 @@ export default function Reports() {
                     {data.byDay.length === 0 && (
                       <tr><td colSpan={12} className="px-4 py-8 text-center text-gray-400 text-xs">No data for this period.</td></tr>
                     )}
-                    {data.byDay.map((d, idx) => {
+                    {paginatedDays.map((d, idx) => {
                       const isOpen = !!expanded[d.date]
                       const multiShift = d.shifts.length > 1
                       const zebra = idx % 2 === 0 ? '' : 'bg-gray-50/60'
@@ -306,6 +321,30 @@ export default function Reports() {
                   )}
                 </table>
               </div>
+              {totalDayPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+                  <span className="text-xs text-gray-400">
+                    Days {(dayPage - 1) * PAGE_SIZE + 1}–{Math.min(dayPage * PAGE_SIZE, data.byDay.length)} of {data.byDay.length}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setDayPage(p => p - 1)}
+                      disabled={dayPage === 1}
+                      className="px-2.5 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors"
+                    >
+                      ←
+                    </button>
+                    <span className="px-2 text-xs text-gray-500 tabular-nums">{dayPage} / {totalDayPages}</span>
+                    <button
+                      onClick={() => setDayPage(p => p + 1)}
+                      disabled={dayPage === totalDayPages}
+                      className="px-2.5 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors"
+                    >
+                      →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* By game type */}

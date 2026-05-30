@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchPosData, getPosImports, savePosImport, deletePosImport } from '../api/pos'
 
@@ -21,15 +21,25 @@ function getPeriodDates(period) {
     saturday.setDate(sunday.getDate() + 6)
     return { from: iso(sunday), to: iso(saturday) }
   }
+  if (period === 'last_week') {
+    const lastSunday = new Date(t)
+    lastSunday.setDate(t.getDate() - t.getDay() - 7)
+    const lastSaturday = new Date(lastSunday)
+    lastSaturday.setDate(lastSunday.getDate() + 6)
+    return { from: iso(lastSunday), to: iso(lastSaturday) }
+  }
   if (period === 'month') return { from: `${t.getFullYear()}-${pad(t.getMonth() + 1)}-01`, to: today() }
   return null
 }
 
+const PAGE_SIZE = 10
+
 const PERIODS = [
-  { key: 'today', label: 'Today' },
-  { key: 'week',  label: 'This Week' },
-  { key: 'month', label: 'This Month' },
-  { key: 'custom', label: 'Custom' },
+  { key: 'today',     label: 'Today' },
+  { key: 'week',      label: 'This Week' },
+  { key: 'last_week', label: 'Last Week' },
+  { key: 'month',     label: 'This Month' },
+  { key: 'custom',    label: 'Custom' },
 ]
 
 export default function PosImport() {
@@ -38,6 +48,8 @@ export default function PosImport() {
   const [period, setPeriod] = useState('month')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [page, setPage] = useState(1)
+  useEffect(() => { setPage(1) }, [period, customFrom, customTo])
 
   const [importDate, setImportDate] = useState(today())
   const [fetchedData, setFetchedData] = useState(null)
@@ -54,6 +66,9 @@ export default function PosImport() {
     queryFn: () => getPosImports(dates.from, dates.to),
     enabled: !!dates,
   })
+
+  const totalPages = Math.ceil(imports.length / PAGE_SIZE)
+  const paginatedImports = imports.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const saveMutation = useMutation({
     mutationFn: (data) => savePosImport(data),
@@ -247,7 +262,7 @@ export default function PosImport() {
                   </td>
                 </tr>
               )}
-              {imports.map((entry, idx) => {
+              {paginatedImports.map((entry, idx) => {
                 const os = entry.overShort
                 const zebra = idx % 2 === 0 ? '' : 'bg-gray-50/60'
                 return (
@@ -299,6 +314,30 @@ export default function PosImport() {
             })()}
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+            <span className="text-xs text-gray-400">
+              Rows {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, imports.length)} of {imports.length}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => p - 1)}
+                disabled={page === 1}
+                className="px-2.5 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors"
+              >
+                ←
+              </button>
+              <span className="px-2 text-xs text-gray-500 tabular-nums">{page} / {totalPages}</span>
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={page === totalPages}
+                className="px-2.5 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors"
+              >
+                →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

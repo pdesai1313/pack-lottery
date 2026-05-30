@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
@@ -19,11 +19,12 @@ function fmt(n) {
 }
 
 const PERIODS = [
-  { key: 'all',    label: 'All' },
-  { key: 'today',  label: 'Today' },
-  { key: 'week',   label: 'This Week' },
-  { key: 'month',  label: 'This Month' },
-  { key: 'custom', label: 'Custom' },
+  { key: 'all',       label: 'All' },
+  { key: 'today',     label: 'Today' },
+  { key: 'week',      label: 'This Week' },
+  { key: 'last_week', label: 'Last Week' },
+  { key: 'month',     label: 'This Month' },
+  { key: 'custom',    label: 'Custom' },
 ]
 
 function getPeriodDates(period, customFrom, customTo) {
@@ -39,10 +40,19 @@ function getPeriodDates(period, customFrom, customTo) {
     saturday.setDate(sunday.getDate() + 6)
     return { from: iso(sunday), to: iso(saturday) }
   }
+  if (period === 'last_week') {
+    const lastSunday = new Date(t)
+    lastSunday.setDate(t.getDate() - t.getDay() - 7)
+    const lastSaturday = new Date(lastSunday)
+    lastSaturday.setDate(lastSunday.getDate() + 6)
+    return { from: iso(lastSunday), to: iso(lastSaturday) }
+  }
   if (period === 'month') return { from: `${t.getFullYear()}-${pad(t.getMonth() + 1)}-01`, to: todayStr }
   if (period === 'custom') return customFrom && customTo ? { from: customFrom, to: customTo } : null
   return null // 'all'
 }
+
+const MONTHS_PER_PAGE = 6
 
 // ─── Create Shift Modal ───────────────────────────────────────────────────────
 
@@ -322,6 +332,8 @@ export default function Shifts() {
 
   const currentMonthKey = format(new Date(), 'yyyy-MM')
   const [expandedMonths, setExpandedMonths] = useState(() => ({ [currentMonthKey]: true }))
+  const [page, setPage] = useState(1)
+  useEffect(() => { setPage(1) }, [period, customFrom, customTo])
 
   const closedMonthGroups = useMemo(() => {
     const map = {}
@@ -332,6 +344,9 @@ export default function Shifts() {
     }
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a))
   }, [closedShifts])
+
+  const totalMonthPages = Math.ceil(closedMonthGroups.length / MONTHS_PER_PAGE)
+  const paginatedMonthGroups = closedMonthGroups.slice((page - 1) * MONTHS_PER_PAGE, page * MONTHS_PER_PAGE)
 
   const deleteMutation = useMutation({
     mutationFn: deleteShift,
@@ -532,7 +547,7 @@ export default function Shifts() {
           )}
 
           {/* Closed shifts grouped by month */}
-          {closedMonthGroups.map(([monthKey, monthShifts]) => {
+          {paginatedMonthGroups.map(([monthKey, monthShifts]) => {
             const isExpanded = !!expandedMonths[monthKey]
             const monthTotal = monthShifts.reduce((sum, s) => sum + (s.totalAmount || 0), 0)
             return (
@@ -565,6 +580,32 @@ export default function Shifts() {
               </div>
             )
           })}
+
+          {/* Pagination */}
+          {totalMonthPages > 1 && (
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-xs text-gray-400">
+                Page {page} of {totalMonthPages} · {closedMonthGroups.length} month{closedMonthGroups.length !== 1 ? 's' : ''}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(p => p - 1)}
+                  disabled={page === 1}
+                  className="px-2.5 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors"
+                >
+                  ←
+                </button>
+                <span className="px-2 text-xs text-gray-500 tabular-nums">{page} / {totalMonthPages}</span>
+                <button
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={page === totalMonthPages}
+                  className="px-2.5 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
       )}
