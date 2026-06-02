@@ -322,6 +322,9 @@ export default function Shifts() {
   // Open shifts always shown — never filtered out
   const openShifts = shifts.filter((s) => s.status === 'OPEN')
 
+  // All closed shifts — used in Create Shift modal so all history is available
+  const allClosedShifts = useMemo(() => shifts.filter((s) => s.status === 'CLOSED'), [shifts])
+
   // Closed shifts filtered by selected period
   const dateRange = getPeriodDates(period, customFrom, customTo)
   const closedShifts = useMemo(() => {
@@ -419,7 +422,7 @@ export default function Shifts() {
 
       {/* Create modal */}
       {showCreate && (
-        <CreateShiftModal onClose={() => setShowCreate(false)} closedShifts={closedShifts} />
+        <CreateShiftModal onClose={() => setShowCreate(false)} closedShifts={allClosedShifts} />
       )}
 
       {/* Reopen confirmation */}
