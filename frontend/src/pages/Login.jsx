@@ -1,13 +1,13 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
   const { login } = useAuth()
-  const navigate = useNavigate()
-  const [email, setEmail] = useState('')
+  const navigate  = useNavigate()
+  const [email, setEmail]     = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e) {
@@ -15,9 +15,8 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const user = await login(email, password)
-      if (user.role === 'OPERATOR') navigate('/shifts')
-      else navigate('/shifts')
+      await login(email, password)
+      navigate('/shifts')
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed')
     } finally {
@@ -44,7 +43,12 @@ export default function Login() {
             />
           </div>
           <div>
-            <label className="label">Password</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="label mb-0">Password</label>
+              <Link to="/forgot-password" className="text-xs text-blue-600 hover:underline">
+                Forgot password?
+              </Link>
+            </div>
             <input
               className="input"
               type="password"
@@ -59,10 +63,6 @@ export default function Login() {
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        <p className="text-gray-400 text-xs mt-4 text-center">
-          Demo: admin / reviewer / operator @example.com
-        </p>
       </div>
     </div>
   )
