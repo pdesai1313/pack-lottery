@@ -3,7 +3,7 @@ const { z } = require('zod')
 const { PrismaClient } = require('@prisma/client')
 const { stringify } = require('csv-stringify/sync')
 const { verifyAccessToken, requireRole } = require('../middleware/auth')
-const { computeDelta, resolveStartTicket, getEffectiveStartTicket, parseFlags, serializeFlags, isErrorFlag } = require('../lib/delta')
+const { computeDelta, resolveStartTicket, getEffectiveStartTicket, parseFlags, serializeFlags, isErrorFlag, FLAGS } = require('../lib/delta')
 const { audit } = require('../lib/audit')
 
 const router = express.Router()
@@ -350,28 +350,31 @@ router.post('/:id/commit', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER'])
       const override = overrideMap[ps.id] || null
       const flags = parseFlags(ps.flags)
 
+      // Trust the operator's PackState as the source of truth for this shift.
+      // The scan page is what the operator saw and signed off on; commit must
+      // not silently rewrite units/amount from a chain-derived effectiveStart,
+      // because any drift between the operator's observed startTicket and the
+      // chain (previous shift's committed end) will either steal legitimate
+      // sales (undercount) or invent sales via the wraparound branch
+      // (overcount). We still compute effectiveStart purely to detect drift
+      // and attach WARNING_CHAIN_DRIFT so it can be reviewed later.
       const effectiveStart = await getEffectiveStartTicket(tx, shiftId, ps.packId)
-      const correctStart = effectiveStart ?? ps.startTicket ?? 0
-
-      let correctUnits = ps.computedUnits ?? 0
-      let correctAmount = ps.computedAmount ?? 0
-      if (effectiveStart != null && ps.endTicket != null) {
-        const rawUnits = ps.endTicket > effectiveStart
-          ? effectiveStart + ps.pack.packSize - ps.endTicket
-          : effectiveStart - ps.endTicket
-        if (rawUnits >= 0) {
-          correctUnits = rawUnits
-          correctAmount = parseFloat((rawUnits * ps.pack.ticketValue).toFixed(2))
-        }
+      if (
+        effectiveStart != null &&
+        ps.startTicket != null &&
+        ps.startTicket !== effectiveStart &&
+        !flags.includes(FLAGS.WARNING_CHAIN_DRIFT)
+      ) {
+        flags.push(FLAGS.WARNING_CHAIN_DRIFT)
       }
 
       const saleData = {
         packId: ps.packId,
         shiftId,
-        startTicket: correctStart,
-        endTicket: ps.endTicket ?? 0,
-        unitsSold: correctUnits,
-        amount: correctAmount,
+        startTicket: ps.startTicket ?? effectiveStart ?? 0,
+        endTicket:   ps.endTicket   ?? ps.startTicket ?? effectiveStart ?? 0,
+        unitsSold:   ps.computedUnits  ?? 0,
+        amount:      ps.computedAmount ?? 0,
         flags: serializeFlags(flags),
         overrideReason: override,
       }
