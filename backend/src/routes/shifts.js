@@ -350,15 +350,38 @@ router.post('/:id/commit', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER'])
       const override = overrideMap[ps.id] || null
       const flags = parseFlags(ps.flags)
 
-      // Trust the operator's PackState as the source of truth for this shift.
-      // The scan page is what the operator saw and signed off on; commit must
-      // not silently rewrite units/amount from a chain-derived effectiveStart,
-      // because any drift between the operator's observed startTicket and the
-      // chain (previous shift's committed end) will either steal legitimate
-      // sales (undercount) or invent sales via the wraparound branch
-      // (overcount). We still compute effectiveStart purely to detect drift
-      // and attach WARNING_CHAIN_DRIFT so it can be reviewed later.
+      // Chain-derive units from the previous shift's committed endTicket so
+      // each shift's PackSale is a per-shift SLICE (never cumulative). Reports
+      // sums PackSale amounts naively across same-day shifts, so a cumulative
+      // row here double-counts earlier shifts on the day.
+      //
+      // Guard: if the operator didn't actually scan this pack this shift
+      // (ps.endTicket is null, or exactly equals ps.startTicket), record 0
+      // units. This blocks the "small glitch" where the wraparound branch
+      // invented a full book of ghost sales for untouched packs when
+      // ps.startTicket drifted from effectiveStart.
       const effectiveStart = await getEffectiveStartTicket(tx, shiftId, ps.packId)
+      const correctStart = effectiveStart ?? ps.startTicket ?? 0
+
+      let correctUnits = 0
+      let correctAmount = 0
+      const operatorScanned = ps.endTicket != null && ps.endTicket !== ps.startTicket
+      if (operatorScanned && effectiveStart != null) {
+        const rawUnits = ps.endTicket > effectiveStart
+          ? effectiveStart + ps.pack.packSize - ps.endTicket
+          : effectiveStart - ps.endTicket
+        if (rawUnits >= 0) {
+          correctUnits = rawUnits
+          correctAmount = parseFloat((rawUnits * ps.pack.ticketValue).toFixed(2))
+        } else {
+          correctUnits = ps.computedUnits ?? 0
+          correctAmount = ps.computedAmount ?? 0
+        }
+      } else if (operatorScanned) {
+        correctUnits = ps.computedUnits ?? 0
+        correctAmount = ps.computedAmount ?? 0
+      }
+
       if (
         effectiveStart != null &&
         ps.startTicket != null &&
@@ -371,10 +394,10 @@ router.post('/:id/commit', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER'])
       const saleData = {
         packId: ps.packId,
         shiftId,
-        startTicket: ps.startTicket ?? effectiveStart ?? 0,
-        endTicket:   ps.endTicket   ?? ps.startTicket ?? effectiveStart ?? 0,
-        unitsSold:   ps.computedUnits  ?? 0,
-        amount:      ps.computedAmount ?? 0,
+        startTicket: correctStart,
+        endTicket:   ps.endTicket ?? correctStart,
+        unitsSold:   correctUnits,
+        amount:      correctAmount,
         flags: serializeFlags(flags),
         overrideReason: override,
       }
