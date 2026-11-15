@@ -175,6 +175,7 @@ function LotterySettingsPanel() {
               <div key={s.step} className="text-xs">
                 <span className={s.ok ? 'text-green-600' : 'text-red-600'}>{s.ok ? '✓' : '✗'}</span>
                 <span className="ml-1.5 font-medium text-gray-600">{s.step}</span>
+                {s.ok && s.reachedApp && <span className="text-gray-400"> — portal reachable from this server (HTTP {s.status})</span>}
                 {s.ok && s.locationId && <span className="text-gray-400"> — location {s.locationId}, cookies: {s.cookies?.join(', ')}</span>}
                 {s.ok && s.weeksReturned != null && <span className="text-gray-400"> — {s.weeksReturned} weeks for {s.endDate}</span>}
                 {!s.ok && <span className="text-gray-500"> — {s.error}</span>}

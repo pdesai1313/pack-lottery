@@ -250,10 +250,53 @@ async function fetchInvoiceWeeks(session, endDate) {
   return parseInvoice(body, endDate)
 }
 
+// Unauthenticated reachability probe. A deliberately invalid login should
+// come back as the portal's own JSON rejection; an HTML page instead means a
+// bot-protection layer intercepted the request before it reached the
+// application. This distinguishes "this server is blocked" from "these
+// credentials are wrong" without using real credentials.
+async function probeReachability() {
+  let res, text
+  try {
+    res = await fetch(AUTH_URL, {
+      method: 'POST',
+      headers: { ...BROWSER_HEADERS, 'Content-Type': 'application/json', 'Origin': BASE, 'Referer': `${BASE}/app/login` },
+      body: JSON.stringify({ username: '__reachability_probe__', password: '__reachability_probe__' }),
+      signal: AbortSignal.timeout(20000),
+    })
+    text = await res.text()
+  } catch (e) {
+    return { ok: false, error: `Could not reach the portal: ${e.message}` }
+  }
+
+  if (looksBlocked(text)) {
+    return {
+      ok: false,
+      status: res.status,
+      error: `Blocked before reaching the application (HTTP ${res.status}, bot protection) — this server's IP is not permitted.`,
+      detail: text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200),
+    }
+  }
+
+  try {
+    const body = JSON.parse(text)
+    if (body?.httpResponse) return { ok: true, status: res.status, reachedApp: true }
+    return { ok: false, status: res.status, error: 'Unexpected JSON from the portal', detail: text.slice(0, 200) }
+  } catch {
+    return { ok: false, status: res.status, error: `Non-JSON response (HTTP ${res.status})`, detail: text.slice(0, 200) }
+  }
+}
+
 // Runs the whole chain once and reports what happened at each step, so a
 // failure in production can be attributed without guesswork.
 async function diagnose(prisma) {
   const steps = []
+
+  const reach = await probeReachability()
+  steps.push({ step: 'reachability', ...reach })
+  // No point attempting a login the network will not deliver.
+  if (!reach.ok) return { ok: false, steps }
+
   let session
   try {
     session = await getSession(prisma, { forceRefresh: true })
@@ -313,6 +356,7 @@ module.exports = {
   login,
   getSession,
   diagnose,
+  probeReachability,
   fetchCommissions,
   fetchInvoiceWeeks,
   parseInvoice,
