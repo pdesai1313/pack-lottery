@@ -1,249 +1,111 @@
-import { useState } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getCommissions } from '../api/lottery'
+import {
+  toRow, metrics, rollup, money, moneyCompact, timeAgo,
+  applyFilters, DEFAULT_FILTERS, downloadCsv,
+  monthBounds, monthOptions, weeksInMonth, latestWeekEnding, addDays,
+} from '../lib/commission'
+import KpiStrip from '../components/commission/KpiStrip'
+import CommissionToolbar from '../components/commission/CommissionToolbar'
+import WeekDetail from '../components/commission/WeekDetail'
+import AgentTable from '../components/commission/AgentTable'
 
-const WEEK_OPTIONS = [1, 4, 12, 26, 52]
+const PAGE_SIZES = [5, 12, 26, 52]
 
-const MODES = [
-  ['recent', 'Recent'],
-  ['month', 'Month'],
-  ['week', 'Single week'],
-  ['custom', 'Custom range'],
-]
-
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December']
-
-// Column order follows the portal's own invoice layout so the table can be
-// checked line-by-line against gemr.masslottery.com.
-const ONLINE_COLUMNS = [
-  ['netSales', 'Net Sales'],
-  ['commission', 'Commission'],
-  ['cashes', 'Cashes'],
-  ['cashBonus', 'Cash Bonus'],
-  ['claimsBonus', 'Claims Bonus'],
-  ['adjustments', 'Adjustments'],
-  ['serviceFee', 'Service Fee'],
-  ['bondingFee', 'Bonding Fee'],
-  ['due', 'Online Due'],
-]
-
-const INSTANT_COLUMNS = [
-  ['grossSales', 'Gross Sales'],
-  ['returnSales', 'Return Sales'],
-  ['commission', 'Commission'],
-  ['cashes', 'Cashes'],
-  ['cashBonus', 'Cash Bonus'],
-  ['claimsBonus', 'Claims Bonus'],
-  ['adjustments', 'Adjustments'],
-  ['due', 'Instant Due'],
-]
-
-// ── Week maths (mirrors backend/src/lib/lottery.js — weeks end Saturday) ─────
-
-function isoDate(d) {
-  return d.toISOString().slice(0, 10)
-}
-
-function addDays(iso, days) {
-  const d = new Date(`${iso}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + days)
-  return isoDate(d)
-}
-
-function weekEndingOnOrBefore(iso) {
-  const d = new Date(`${iso}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 1) % 7))
-  return isoDate(d)
-}
-
-function today() {
-  const n = new Date()
-  return isoDate(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())))
-}
-
-function latestWeekEnding() {
-  return weekEndingOnOrBefore(today())
-}
-
-function monthBounds(ym) {
-  const [y, m] = ym.split('-').map(Number)
-  return { start: `${ym}-01`, end: isoDate(new Date(Date.UTC(y, m, 0))) }
-}
-
-// Dropdown of the last two years of months, newest first.
-function monthOptions(count = 24) {
-  const now = new Date()
-  let y = now.getFullYear()
-  let m = now.getMonth()
-  const out = []
-  for (let i = 0; i < count; i++) {
-    out.push({ value: `${y}-${String(m + 1).padStart(2, '0')}`, label: `${MONTH_NAMES[m]} ${y}` })
-    if (--m < 0) { m = 11; y-- }
+/**
+ * Table columns, rebuilt whenever visibility or category focus changes.
+ * Grouped columns must stay contiguous and come before ungrouped ones, so
+ * the two header rows and the pinned footer line up without bookkeeping.
+ */
+function buildColumns(vis, focus) {
+  const cols = []
+  if (focus !== 'instant') {
+    cols.push({ key: 'onlSales', label: 'Sales', group: 'online', get: (r, m) => m.sales.online, foot: (t) => t.sales.online })
+    if (vis.onlineCashes) cols.push({ key: 'onlCashes', label: 'Cashes', group: 'online', get: (r, m) => m.cashes.online, foot: (t) => t.cashes.online })
+    cols.push({ key: 'onlDue', label: 'Due', group: 'online', get: (r, m) => m.due.online, foot: (t) => t.due.online, strong: true })
   }
-  return out
-}
-
-// Week-ending dates falling inside a month, newest first. Weeks that have not
-// closed yet are left out — the portal has no figures for them.
-function weeksInMonth(ym) {
-  const { start, end } = monthBounds(ym)
-  const cap = latestWeekEnding()
-  let cursor = weekEndingOnOrBefore(end)
-  if (cursor > cap) cursor = cap
-  const out = []
-  while (cursor >= start) {
-    out.push(cursor)
-    cursor = addDays(cursor, -7)
+  if (focus !== 'online') {
+    cols.push({ key: 'instSales', label: 'Sales', group: 'instant', get: (r, m) => m.sales.instant, foot: (t) => t.sales.instant })
+    if (vis.instantCashes) cols.push({ key: 'instCashes', label: 'Cashes', group: 'instant', get: (r, m) => m.cashes.instant, foot: (t) => t.cashes.instant })
+    cols.push({ key: 'instDue', label: 'Due', group: 'instant', get: (r, m) => m.due.instant, foot: (t) => t.due.instant, strong: true })
   }
-  return out
+  if (vis.fees) {
+    // Fees only, excluding adjustments — those get their own column.
+    cols.push({
+      key: 'fees', label: 'Svc + Bond',
+      get: (r) => r.onlSvcFee + r.onlBondFee,
+      foot: (t, rows) => rows.reduce((a, r) => a + r.onlSvcFee + r.onlBondFee, 0),
+    })
+  }
+  if (vis.adjustments) {
+    cols.push({
+      key: 'adj', label: 'Net Adj.',
+      get: (r) => r.onlAdj + r.instAdj,
+      foot: (t, rows) => rows.reduce((a, r) => a + r.onlAdj + r.instAdj, 0),
+    })
+  }
+  cols.push({ key: 'comm', label: 'Comm.', get: (r, m) => m.commission.total, foot: (t) => t.commission.total, compact: true })
+  return cols
 }
 
-// ── Formatting ───────────────────────────────────────────────────────────────
-
-function money(n) {
-  if (n == null) return '—'
-  const s = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  return (n < 0 ? '-$' : '$') + s
+function groupSpans(cols) {
+  const spans = []
+  for (const c of cols) {
+    const last = spans[spans.length - 1]
+    if (c.group && last?.group === c.group) last.span++
+    else spans.push({ group: c.group ?? null, span: 1, label: c.label })
+  }
+  return spans
 }
 
-function signClass(n) {
-  if (!n) return 'text-gray-400'
-  return n < 0 ? 'text-red-600' : 'text-gray-800'
-}
+const GROUP_TITLE = { online: 'Online Lottery', instant: 'Instant Tickets' }
 
-// ── Agent Information rollup ─────────────────────────────────────────────────
-
-// Totals across every week on screen. Online and instant are kept apart
-// because the portal settles them as two separate accounts.
-function rollup(rows) {
-  const sum = (fn) => rows.reduce((a, w) => a + (Number(fn(w)) || 0), 0)
-  const o = (k) => (w) => w.online?.[k]
-  const i = (k) => (w) => w.instant?.[k]
-
-  const onlineSales = sum(o('netSales'))
-  // Returned packs reduce what was actually sold. The portal's sign
-  // convention for "Return Sales" is not guaranteed, so subtract the
-  // magnitude — correct whether it reports returns as positive or negative.
-  const instantSales = sum((w) => (Number(w.instant?.grossSales) || 0) - Math.abs(Number(w.instant?.returnSales) || 0))
-
-  const onlineCashes = sum(o('cashes'))
-  const instantCashes = sum(i('cashes'))
-
-  // Commission as earned: the base rate plus both bonus programmes.
-  const onlineCommission = sum((w) =>
-    (Number(w.online?.commission) || 0) + (Number(w.online?.cashBonus) || 0) + (Number(w.online?.claimsBonus) || 0))
-  const instantCommission = sum((w) =>
-    (Number(w.instant?.commission) || 0) + (Number(w.instant?.cashBonus) || 0) + (Number(w.instant?.claimsBonus) || 0))
-
-  const onlineDue = sum(o('due'))
-  const instantDue = sum(i('due'))
-
-  return [
-    { label: 'Sales', note: 'online net · instant gross less returns', online: onlineSales, instant: instantSales },
-    { label: 'Cashes', note: 'winning tickets paid out', online: onlineCashes, instant: instantCashes },
-    { label: 'Total Commission', note: 'commission + cash bonus + claims bonus', online: onlineCommission, instant: instantCommission },
-    { label: 'Total Due', note: 'settled with the Lottery', online: onlineDue, instant: instantDue, emphasise: true },
-  ].map((r) => ({ ...r, total: r.online + r.instant }))
-}
-
-function AgentInformation({ rows }) {
-  const [open, setOpen] = useState(true)
-  if (rows.length === 0) return null
-
-  const lines = rollup(rows)
-  const newest = rows[0].weekEnding
-  const oldest = rows[rows.length - 1].weekEnding
-  const span = rows.length === 1 ? `week ending ${newest}` : `${rows.length} weeks · ${oldest} → ${newest}`
-
-  return (
-    <div className="card p-0 mt-5 shadow-sm overflow-hidden">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-      >
-        <span className="flex items-baseline gap-2">
-          <span className="font-semibold text-sm text-gray-800">Agent Information</span>
-          <span className="text-xs text-gray-400">{span}</span>
-        </span>
-        <span className={`text-gray-400 text-xs transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
-      </button>
-
-      {open && (
-        <div className="border-t border-gray-100 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide" />
-                <th className="text-right px-4 py-2 text-[11px] font-semibold text-blue-600 uppercase tracking-wide">Online</th>
-                <th className="text-right px-4 py-2 text-[11px] font-semibold text-green-700 uppercase tracking-wide">Instant</th>
-                <th className="text-right px-4 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide border-l border-gray-200">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((r) => (
-                <tr key={r.label} className={`border-b border-gray-100 last:border-0 ${r.emphasise ? 'bg-blue-50/40' : ''}`}>
-                  <td className="px-4 py-2.5">
-                    <p className={`text-xs ${r.emphasise ? 'font-bold text-gray-800' : 'font-semibold text-gray-700'}`}>{r.label}</p>
-                    <p className="text-[10px] text-gray-400">{r.note}</p>
-                  </td>
-                  <td className={`px-4 py-2.5 text-xs text-right font-mono tabular-nums ${signClass(r.online)}`}>{money(r.online)}</td>
-                  <td className={`px-4 py-2.5 text-xs text-right font-mono tabular-nums ${signClass(r.instant)}`}>{money(r.instant)}</td>
-                  <td className={`px-4 py-2.5 text-xs text-right font-mono tabular-nums border-l border-gray-200 ${r.emphasise ? 'font-bold' : 'font-semibold'} ${signClass(r.total)}`}>
-                    {money(r.total)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Period picker ────────────────────────────────────────────────────────────
-
-function Chip({ active, onClick, children }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-        active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
-      }`}
-    >
-      {children}
-    </button>
-  )
+function amountClass(n) {
+  if (!n) return 'text-gray-300'
+  return n < 0 ? 'text-rose-600' : 'text-gray-800'
 }
 
 export default function LotteryCommission() {
   const qc = useQueryClient()
   const months = monthOptions()
 
-  const [mode, setMode] = useState('recent')
-  const [weeks, setWeeks] = useState(12)
-  const [month, setMonth] = useState(months[0].value)
-  const [pickedWeek, setPickedWeek] = useState('')
-  const [customStart, setCustomStart] = useState(addDays(latestWeekEnding(), -7 * 7))
-  const [customEnd, setCustomEnd] = useState(latestWeekEnding())
+  const [period, setPeriod] = useState({
+    mode: 'recent',
+    weeks: 12,
+    month: months[0].value,
+    pickedWeek: '',
+    customStart: addDays(latestWeekEnding(), -7 * 7),
+    customEnd: latestWeekEnding(),
+  })
+  const [filters, setFilters] = useState(DEFAULT_FILTERS)
+  const [columnVis, setColumnVis] = useState({
+    onlineCashes: true, instantCashes: true, fees: false, adjustments: false,
+  })
+  const [density, setDensity] = useState('comfortable')
+  const [expanded, setExpanded] = useState(() => new Set())
+  const [sortAsc, setSortAsc] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(12)
   const [refreshing, setRefreshing] = useState(false)
 
-  // Keep the week dropdown valid when the month changes, without an effect.
-  const monthWeeks = weeksInMonth(month)
-  const selectedWeek = monthWeeks.includes(pickedWeek) ? pickedWeek : monthWeeks[0]
-
-  let params = null
-  if (mode === 'recent') {
-    params = { weeks }
-  } else if (mode === 'month') {
-    const { start, end } = monthBounds(month)
-    params = { startDate: start, endDate: end }
-  } else if (mode === 'week' && selectedWeek) {
-    params = { startDate: selectedWeek, endDate: selectedWeek }
-  } else if (mode === 'custom' && customStart && customEnd && customStart <= customEnd) {
-    params = { startDate: customStart, endDate: customEnd }
-  }
+  // ── Query parameters for the chosen period ────────────────────────────────
+  const params = useMemo(() => {
+    if (period.mode === 'recent') return { weeks: period.weeks }
+    if (period.mode === 'month') {
+      const { start, end } = monthBounds(period.month)
+      return { startDate: start, endDate: end }
+    }
+    if (period.mode === 'week') {
+      const weeksAvailable = weeksInMonth(period.month)
+      const week = weeksAvailable.includes(period.pickedWeek) ? period.pickedWeek : weeksAvailable[0]
+      return week ? { startDate: week, endDate: week } : null
+    }
+    if (period.customStart && period.customEnd && period.customStart <= period.customEnd) {
+      return { startDate: period.customStart, endDate: period.customEnd }
+    }
+    return null
+  }, [period])
 
   const { data, isLoading, isError, error, isFetching } = useQuery({
     queryKey: ['lottery-commissions', params],
@@ -255,7 +117,6 @@ export default function LotteryCommission() {
     gcTime: Infinity,
   })
 
-  // Deliberate re-pull: asks the server to bypass its cache for this range.
   async function handleRefresh() {
     if (!params) return
     setRefreshing(true)
@@ -267,103 +128,86 @@ export default function LotteryCommission() {
     }
   }
 
-  const rows = data?.weeks ?? []
-  // Same definition the Agent Information panel uses, so the two agree.
-  const totalCommission = rows.reduce((a, w) =>
-    a + (w.online?.commission || 0) + (w.online?.cashBonus || 0) + (w.online?.claimsBonus || 0)
-      + (w.instant?.commission || 0) + (w.instant?.cashBonus || 0) + (w.instant?.claimsBonus || 0), 0)
-  const totalDue = rows.reduce((a, w) => a + (w.totalDue ?? 0), 0)
-  const colSpan = ONLINE_COLUMNS.length + INSTANT_COLUMNS.length + 2
-  const busy = isFetching || refreshing
+  // ── Rows: normalise → filter → sort → paginate ────────────────────────────
+  const allRows = useMemo(() => (data?.weeks ?? []).map(toRow), [data])
+  const filtered = useMemo(() => applyFilters(allRows, filters), [allRows, filters])
+
+  const sorted = useMemo(
+    () => [...filtered].sort((a, b) =>
+      sortAsc ? a.weekEnding.localeCompare(b.weekEnding) : b.weekEnding.localeCompare(a.weekEnding)),
+    [filtered, sortAsc]
+  )
+
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const safePage = Math.min(page, pageCount)
+  const start = (safePage - 1) * pageSize
+  const pageRows = sorted.slice(start, start + pageSize)
+
+  // Totals describe every filtered week, not just the visible page.
+  const totals = useMemo(() => rollup(filtered), [filtered])
+
+  const cols = useMemo(() => buildColumns(columnVis, filters.focus), [columnVis, filters.focus])
+  const groupedCols = cols.filter((c) => c.group)
+  const spans = groupSpans(cols)
+  const colSpan = cols.length + 2 // week ending + total due
+
+  const rowPad = density === 'compact' ? 'py-1' : 'py-2.5'
+  const anyExpanded = expanded.size > 0
+
+  function toggleRow(weekEnding) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(weekEnding)) next.delete(weekEnding)
+      else next.add(weekEnding)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    setExpanded(anyExpanded ? new Set() : new Set(pageRows.map((r) => r.weekEnding)))
+  }
+
+  const syncedLabel = timeAgo(data?.syncedAt)
 
   return (
     <div>
-      <div className="mb-5">
-        <h2 className="text-xl font-bold tracking-tight">Lottery Commission</h2>
-        <p className="text-gray-400 text-xs mt-0.5">
-          Weekly invoice data from the Mass Lottery retailer portal. Weeks end on Saturday.
-        </p>
-      </div>
-
-      <div className="card mb-4 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {MODES.map(([key, label]) => (
-            <Chip key={key} active={mode === key} onClick={() => setMode(key)}>{label}</Chip>
-          ))}
-
-          <div className="ml-auto flex items-center gap-3">
-            {busy && <span className="text-xs text-gray-400">Loading…</span>}
-            {!busy && data && (
-              <span className="text-xs text-gray-400">
-                {data.cached > 0 && `${data.cached} cached`}
-                {data.cached > 0 && data.fetched > 0 && ' · '}
-                {data.fetched > 0 && `${data.fetched} fetched`}
-              </span>
-            )}
-            <button
-              className="btn-secondary btn-sm"
-              onClick={handleRefresh}
-              disabled={!params || busy}
-              title="Re-pull this range from the portal, replacing what is stored"
-            >
-              ↻ Refresh
-            </button>
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold tracking-tight">Lottery Commission</h2>
+            <span className="badge badge-blue">Mass Lottery Retailer Portal</span>
           </div>
+          <p className="text-gray-400 text-xs mt-0.5">
+            Weekly invoice data from the Mass Lottery retailer portal. Weeks end on Saturday.
+          </p>
         </div>
 
-        <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-end gap-3">
-          {mode === 'recent' && WEEK_OPTIONS.map((w) => (
-            <Chip key={w} active={weeks === w} onClick={() => setWeeks(w)}>
-              {w === 1 ? '1 week' : `${w} weeks`}
-            </Chip>
-          ))}
-
-          {mode === 'month' && (
-            <div>
-              <label className="label">Month</label>
-              <select className="input" value={month} onChange={(e) => setMonth(e.target.value)}>
-                {months.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-              </select>
-            </div>
-          )}
-
-          {mode === 'week' && (
-            <>
-              <div>
-                <label className="label">Month</label>
-                <select className="input" value={month} onChange={(e) => setMonth(e.target.value)}>
-                  {months.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">Week ending</label>
-                <select
-                  className="input"
-                  value={selectedWeek || ''}
-                  onChange={(e) => setPickedWeek(e.target.value)}
-                  disabled={monthWeeks.length === 0}
-                >
-                  {monthWeeks.length === 0
-                    ? <option>No closed weeks yet</option>
-                    : monthWeeks.map((w) => <option key={w} value={w}>{w}</option>)}
-                </select>
-              </div>
-            </>
-          )}
-
-          {mode === 'custom' && (
-            <>
-              <div>
-                <label className="label">From</label>
-                <input className="input" type="date" value={customStart} max={customEnd} onChange={(e) => setCustomStart(e.target.value)} />
-              </div>
-              <div>
-                <label className="label">To</label>
-                <input className="input" type="date" value={customEnd} min={customStart} max={latestWeekEnding()} onChange={(e) => setCustomEnd(e.target.value)} />
-              </div>
-              <p className="text-[11px] text-gray-400 pb-2">Shows every week ending inside this range.</p>
-            </>
-          )}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-gray-400">
+            {isFetching || refreshing
+              ? 'Loading…'
+              : [data?.cached ? `${data.cached} cached` : null,
+                 data?.fetched ? `${data.fetched} fetched` : null,
+                 syncedLabel ? `Synced ${syncedLabel}` : null].filter(Boolean).join(' • ')}
+          </span>
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={handleRefresh}
+            disabled={!params || isFetching || refreshing}
+            title="Re-pull this range from the portal, replacing what is stored"
+          >
+            ↻
+          </button>
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={() => downloadCsv(sorted, `lottery-commission-${sorted.at(-1)?.weekEnding ?? 'export'}_${sorted[0]?.weekEnding ?? ''}.csv`)}
+            disabled={sorted.length === 0}
+          >
+            Export CSV
+          </button>
         </div>
       </div>
 
@@ -380,92 +224,241 @@ export default function LotteryCommission() {
 
       {!isError && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
-            <div className="card px-4 py-3">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Weeks shown</p>
-              <p className="text-lg font-bold text-gray-800">{rows.length}</p>
-            </div>
-            <div className="card px-4 py-3">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Commission</p>
-              <p className="text-lg font-bold text-gray-800">{money(totalCommission)}</p>
-            </div>
-            <div className="card px-4 py-3">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Due</p>
-              <p className={`text-lg font-bold ${signClass(totalDue)}`}>{money(totalDue)}</p>
-            </div>
-          </div>
+          <KpiStrip totals={totals} weekCount={filtered.length} />
 
+          <CommissionToolbar
+            period={period}
+            setPeriod={(u) => { setPeriod(u); setPage(1) }}
+            filters={filters}
+            setFilters={(u) => { setFilters(u); setPage(1) }}
+            columns={columnVis}
+            setColumns={setColumnVis}
+            density={density}
+            setDensity={setDensity}
+            anyExpanded={anyExpanded}
+            onToggleAll={toggleAll}
+          />
+
+          {/* ── Table ──────────────────────────────────────────────────────── */}
           <div className="card p-0 shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm border-separate border-spacing-0">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="text-left px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap sticky left-0 bg-gray-50">
-                      Week Ending
+                  <tr className="bg-gray-50">
+                    <th
+                      rowSpan={2}
+                      className="text-left px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap sticky left-0 z-20 bg-gray-50 border-b border-gray-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]"
+                    >
+                      <button type="button" onClick={() => setSortAsc((v) => !v)} className="hover:text-gray-800">
+                        Week Ending <span className="text-gray-400">{sortAsc ? '↑' : '↓'}</span>
+                      </button>
                     </th>
-                    <th colSpan={ONLINE_COLUMNS.length} className="text-center px-3 py-2 text-[11px] font-semibold text-blue-600 uppercase tracking-wide border-l border-gray-200">
-                      Online
-                    </th>
-                    <th colSpan={INSTANT_COLUMNS.length} className="text-center px-3 py-2 text-[11px] font-semibold text-green-700 uppercase tracking-wide border-l border-gray-200">
-                      Instant
-                    </th>
-                    <th className="text-right px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide border-l border-gray-200 whitespace-nowrap">
+                    {spans.map((s, i) => s.group ? (
+                      <th
+                        key={s.group}
+                        colSpan={s.span}
+                        className={`text-center px-3 py-2 text-[11px] font-semibold uppercase tracking-wide border-l border-b border-gray-200 ${
+                          s.group === 'online' ? 'text-blue-600' : 'text-green-700'
+                        }`}
+                      >
+                        {GROUP_TITLE[s.group]}
+                      </th>
+                    ) : (
+                      <th
+                        key={`u-${i}`}
+                        rowSpan={2}
+                        className="text-right px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap border-l border-b border-gray-200"
+                      >
+                        {s.label}
+                      </th>
+                    ))}
+                    <th
+                      rowSpan={2}
+                      className="text-right px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide whitespace-nowrap sticky right-0 z-20 bg-gray-50 border-l border-b border-gray-200 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.12)]"
+                    >
                       Total Due
                     </th>
                   </tr>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="sticky left-0 bg-gray-50" />
-                    {ONLINE_COLUMNS.map(([k, label], i) => (
-                      <th key={`o-${k}`} className={`text-right px-3 py-1.5 text-[10px] font-medium text-gray-400 whitespace-nowrap ${i === 0 ? 'border-l border-gray-200' : ''}`}>
-                        {label}
+                  <tr className="bg-gray-50">
+                    {groupedCols.map((c, i) => (
+                      <th
+                        key={c.key}
+                        className={`text-right px-3 py-1.5 text-[10px] font-medium text-gray-400 whitespace-nowrap border-b border-gray-200 ${
+                          groupedCols[i - 1]?.group !== c.group ? 'border-l border-gray-200' : ''
+                        }`}
+                      >
+                        {c.label}
                       </th>
                     ))}
-                    {INSTANT_COLUMNS.map(([k, label], i) => (
-                      <th key={`i-${k}`} className={`text-right px-3 py-1.5 text-[10px] font-medium text-gray-400 whitespace-nowrap ${i === 0 ? 'border-l border-gray-200' : ''}`}>
-                        {label}
-                      </th>
-                    ))}
-                    <th className="border-l border-gray-200" />
                   </tr>
                 </thead>
+
                 <tbody>
                   {isLoading && (
                     <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-gray-400 text-xs">
                       Fetching from the lottery portal…
                     </td></tr>
                   )}
-                  {!isLoading && rows.length === 0 && (
+                  {!isLoading && pageRows.length === 0 && (
                     <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-gray-400 text-xs">
-                      No commission data for this period.
+                      {allRows.length === 0 ? 'No commission data for this period.' : 'No weeks match these filters.'}
                     </td></tr>
                   )}
-                  {rows.map((w, idx) => (
-                    <tr key={w.weekEnding} className={`${idx % 2 ? 'bg-gray-50/60' : ''} border-b border-gray-100 hover:bg-blue-50/40 transition-colors`}>
-                      <td className={`px-3 py-2 text-xs font-semibold whitespace-nowrap sticky left-0 ${idx % 2 ? 'bg-gray-50' : 'bg-white'}`}>
-                        {w.weekEnding}
+
+                  {pageRows.map((row, idx) => {
+                    const m = metrics(row)
+                    const isOpen = expanded.has(row.weekEnding)
+                    const stripe = idx % 2 ? 'bg-gray-50/60' : 'bg-white'
+                    const stickyBg = idx % 2 ? 'bg-gray-50' : 'bg-white'
+                    return (
+                      <Fragment key={row.weekEnding}>
+                        <tr
+                          onClick={() => toggleRow(row.weekEnding)}
+                          className={`${stripe} border-b border-gray-100 hover:bg-blue-50/40 transition-colors cursor-pointer`}
+                        >
+                          <td className={`px-3 ${rowPad} text-xs font-semibold whitespace-nowrap sticky left-0 z-10 border-b border-gray-100 ${isOpen ? 'bg-blue-50' : stickyBg} shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]`}>
+                            <span className="text-gray-400 mr-1.5 inline-block w-2">{isOpen ? '▼' : '▶'}</span>
+                            {row.weekEnding}
+                          </td>
+                          {cols.map((c, i) => {
+                            const v = c.get(row, m)
+                            return (
+                              <td
+                                key={c.key}
+                                className={`px-3 ${rowPad} text-xs text-right tabular-nums border-b border-gray-100 ${amountClass(v)} ${c.strong ? 'font-semibold' : ''} ${
+                                  i === 0 || cols[i - 1]?.group !== c.group ? 'border-l border-gray-200' : ''
+                                }`}
+                              >
+                                {c.compact ? moneyCompact(v) : money(v)}
+                              </td>
+                            )
+                          })}
+                          <td className={`px-3 ${rowPad} text-right whitespace-nowrap sticky right-0 z-10 border-l border-b border-gray-200 ${isOpen ? 'bg-blue-50' : stickyBg} shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.12)]`}>
+                            {m.due.total < 0 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tabular-nums bg-rose-50 text-rose-700 border border-rose-200">
+                                {money(m.due.total)}
+                              </span>
+                            ) : (
+                              <span className="text-xs font-bold tabular-nums text-gray-800">{money(m.due.total)}</span>
+                            )}
+                          </td>
+                        </tr>
+                        {isOpen && <WeekDetail row={row} colSpan={colSpan} />}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+
+                {filtered.length > 0 && (
+                  <tfoot className="sticky bottom-0 z-20">
+                    <tr className="bg-gray-100 border-t-2 border-gray-300">
+                      <td className="px-3 py-2 text-[11px] font-bold text-gray-700 uppercase tracking-wide whitespace-nowrap sticky left-0 z-20 bg-gray-100 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]">
+                        Total ({filtered.length} wk{filtered.length === 1 ? '' : 's'})
                       </td>
-                      {ONLINE_COLUMNS.map(([k], i) => (
-                        <td key={`o-${k}`} className={`px-3 py-2 text-xs text-right font-mono tabular-nums ${signClass(w.online?.[k])} ${i === 0 ? 'border-l border-gray-200' : ''} ${k === 'due' ? 'font-semibold' : ''}`}>
-                          {money(w.online?.[k])}
-                        </td>
-                      ))}
-                      {INSTANT_COLUMNS.map(([k], i) => (
-                        <td key={`i-${k}`} className={`px-3 py-2 text-xs text-right font-mono tabular-nums ${signClass(w.instant?.[k])} ${i === 0 ? 'border-l border-gray-200' : ''} ${k === 'due' ? 'font-semibold' : ''}`}>
-                          {money(w.instant?.[k])}
-                        </td>
-                      ))}
-                      <td className={`px-3 py-2 text-xs text-right font-mono tabular-nums font-bold border-l border-gray-200 ${signClass(w.totalDue)}`}>
-                        {money(w.totalDue)}
+                      {cols.map((c, i) => {
+                        const sum = c.foot(totals, filtered)
+                        return (
+                          <td
+                            key={c.key}
+                            className={`px-3 py-2 text-xs text-right tabular-nums font-bold ${sum < 0 ? 'text-rose-600' : 'text-gray-800'} ${
+                              i === 0 || cols[i - 1]?.group !== c.group ? 'border-l border-gray-300' : ''
+                            }`}
+                          >
+                            {c.compact ? moneyCompact(sum) : money(sum)}
+                          </td>
+                        )
+                      })}
+                      <td className={`px-3 py-2 text-xs text-right tabular-nums font-extrabold sticky right-0 z-20 bg-gray-100 border-l border-gray-300 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.12)] ${
+                        totals.due.total < 0 ? 'text-rose-600' : 'text-gray-900'
+                      }`}>
+                        {money(totals.due.total)}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
+                  </tfoot>
+                )}
               </table>
             </div>
+
+            {/* ── Pagination ───────────────────────────────────────────────── */}
+            {filtered.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-t border-gray-100">
+                <p className="text-xs text-gray-500">
+                  Showing {start + 1}–{Math.min(start + pageSize, sorted.length)} of {sorted.length} weeks
+                </p>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                    Rows per page
+                    <select
+                      className="input !w-auto !py-1 text-xs"
+                      value={pageSize}
+                      onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
+                    >
+                      {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button" className="btn-secondary btn-sm"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1}
+                    >
+                      Prev
+                    </button>
+                    {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setPage(n)}
+                        className={`w-7 h-7 rounded-md text-xs font-medium transition-colors ${
+                          n === safePage ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                    <button
+                      type="button" className="btn-secondary btn-sm"
+                      onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={safePage === pageCount}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <AgentInformation rows={rows} />
+          <PeriodSummary totals={totals} rows={filtered} />
         </>
+      )}
+    </div>
+  )
+}
+
+function PeriodSummary({ totals, rows }) {
+  const [open, setOpen] = useState(true)
+  if (rows.length === 0) return null
+
+  const newest = rows[0].weekEnding
+  const oldest = rows[rows.length - 1].weekEnding
+  const span = rows.length === 1 ? `week ending ${newest}` : `${rows.length} weeks · ${oldest} → ${newest}`
+
+  return (
+    <div className="card p-0 mt-4 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+      >
+        <span className="flex items-baseline gap-2">
+          <span className="font-semibold text-sm text-gray-800">Agent Information — Period Summary</span>
+          <span className="text-xs text-gray-400">{span}</span>
+        </span>
+        <span className={`text-gray-400 text-xs transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
+      </button>
+      {open && (
+        <div className="border-t border-gray-100 overflow-x-auto">
+          <AgentTable totals={totals} />
+        </div>
       )}
     </div>
   )

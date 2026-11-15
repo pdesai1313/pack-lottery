@@ -30,6 +30,7 @@ function toRecord(row) {
     online: row.online ?? {},
     instant: row.instant ?? {},
     totalDue: row.totalDue ?? 0,
+    fetchedAt: row.fetchedAt ?? null,
   }
 }
 
@@ -101,9 +102,10 @@ async function getWeeks(prisma, { startDate, endDate, refresh = false }) {
       const batch = await fetchWithRetry(prisma, sessionRef, anchor)
       portalCalls++
 
+      const fetchedAt = new Date()
       for (const week of batch) {
         await storeWeek(prisma, week)
-        if (outstanding.has(week.weekEnding)) have.set(week.weekEnding, week)
+        if (outstanding.has(week.weekEnding)) have.set(week.weekEnding, { ...week, fetchedAt })
       }
 
       // Clear the whole window the call covered, not just the weeks it
@@ -114,11 +116,19 @@ async function getWeeks(prisma, { startDate, endDate, refresh = false }) {
   }
 
   const weeks = wanted.filter((w) => have.has(w)).map((w) => have.get(w))
+
+  // Newest pull in the range, so the UI can say how current the figures are.
+  const syncedAt = weeks.reduce((latest, w) => {
+    const t = w.fetchedAt ? new Date(w.fetchedAt) : null
+    return t && (!latest || t > latest) ? t : latest
+  }, null)
+
   return {
     weeks,
     cached: refresh ? 0 : cachedCount,
     fetched: weeks.length - (refresh ? 0 : cachedCount),
     portalCalls,
+    syncedAt,
   }
 }
 
