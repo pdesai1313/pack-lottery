@@ -155,6 +155,24 @@ model AppSettings {
   @@map("app_settings")
 }
 
+// One cached week of Mass Lottery invoice data.
+//
+// A closed week never changes, so once a week has been pulled it is served
+// from here instead of the portal. The portal returns four weeks per call, so
+// fetching one uncached week also caches its three neighbours for free.
+// `online` and `instant` are stored as JSON because the portal decides which
+// line items exist; a new line item must not require a migration.
+model LotteryWeek {
+  id         Int      @id @default(autoincrement())
+  weekEnding String   @unique @map("week_ending")
+  online     Json
+  instant    Json
+  totalDue   Float    @default(0) @map("total_due")
+  fetchedAt  DateTime @default(now()) @map("fetched_at")
+
+  @@map("lottery_weeks")
+}
+
 model GroceryEntry {
   id               Int      @id @default(autoincrement())
   date             String

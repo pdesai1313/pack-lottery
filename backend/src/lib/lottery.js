@@ -230,11 +230,35 @@ function addDays(iso, days) {
   return isoDate(d)
 }
 
-// Most recent Saturday on or before today (portal weeks end Saturday).
-function latestWeekEnding(today = new Date()) {
-  const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+// Most recent Saturday on or before the given date (portal weeks end Saturday).
+function weekEndingOnOrBefore(iso) {
+  const d = new Date(`${iso}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 1) % 7))
   return isoDate(d)
+}
+
+// Most recent Saturday on or before today.
+function latestWeekEnding(today = new Date()) {
+  return weekEndingOnOrBefore(isoDate(
+    new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+  ))
+}
+
+// Every week-ending date inside [startDate, endDate], newest first.
+//
+// Weeks that have not closed yet are excluded: the portal has no data for
+// them, and asking would cache a row of zeros that never gets corrected.
+function weekEndingsInRange(startDate, endDate, today = new Date()) {
+  const cap = latestWeekEnding(today)
+  let cursor = weekEndingOnOrBefore(endDate)
+  if (cursor > cap) cursor = cap
+
+  const out = []
+  while (cursor >= startDate) {
+    out.push(cursor)
+    cursor = addDays(cursor, -7)
+  }
+  return out
 }
 
 // Transposes the portal's "row per line item, four week columns" payload into
@@ -392,42 +416,17 @@ async function diagnose(prisma) {
   }
 }
 
-// Walks backwards from the latest completed week, four weeks per request.
-async function fetchCommissions(prisma, { weeks = 12, endDate = latestWeekEnding() } = {}) {
-  let session = await getSession(prisma)
-  const calls = Math.ceil(weeks / WEEK_COLUMNS)
-  const collected = []
-
-  for (let c = 0; c < calls; c++) {
-    const callEnd = addDays(endDate, -7 * WEEK_COLUMNS * c)
-    let batch
-    try {
-      batch = await fetchInvoiceWeeks(session, callEnd)
-    } catch (e) {
-      // A cached cookie can lapse between requests; retry once with a fresh one.
-      if (e instanceof LotteryError && e.status === 401) {
-        session = await getSession(prisma, { forceRefresh: true })
-        batch = await fetchInvoiceWeeks(session, callEnd)
-      } else {
-        throw e
-      }
-    }
-    collected.push(...batch)
-  }
-
-  return collected
-    .sort((a, b) => b.weekEnding.localeCompare(a.weekEnding))
-    .slice(0, weeks)
-}
-
 module.exports = {
   login,
   getSession,
   diagnose,
   probeReachability,
-  fetchCommissions,
   fetchInvoiceWeeks,
   parseInvoice,
   latestWeekEnding,
+  weekEndingOnOrBefore,
+  weekEndingsInRange,
+  addDays,
+  WEEK_COLUMNS,
   LotteryError,
 }

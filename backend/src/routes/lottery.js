@@ -3,7 +3,8 @@ const { z } = require('zod')
 const { PrismaClient } = require('@prisma/client')
 const { verifyAccessToken, requireRole } = require('../middleware/auth')
 const { encrypt } = require('../lib/crypto')
-const { diagnose, fetchCommissions, latestWeekEnding, LotteryError } = require('../lib/lottery')
+const { diagnose, latestWeekEnding, weekEndingOnOrBefore, addDays, LotteryError } = require('../lib/lottery')
+const { getWeeks } = require('../lib/lotteryCache')
 const { audit } = require('../lib/audit')
 
 const router = express.Router()
@@ -78,18 +79,39 @@ router.post('/test', verifyAccessToken, requireRole('ADMIN'), async (req, res) =
   res.json(result)
 })
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+// Two ways to ask for data, because the UI offers both:
+//   - a rolling count   (?weeks=4)            — the last N closed weeks
+//   - an explicit range (?startDate&?endDate) — every week ending inside it,
+//                                               which is how month and
+//                                               single-week picks arrive.
+// A range wins if both are supplied.
 router.get('/commissions', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER']), async (req, res) => {
   const schema = z.object({
-    weeks: z.coerce.number().int().min(1).max(104).default(12),
-    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    weeks: z.coerce.number().int().min(1).max(208).default(12),
+    startDate: z.string().regex(ISO_DATE).optional(),
+    endDate: z.string().regex(ISO_DATE).optional(),
+    // Not z.coerce.boolean(): that makes the string "false" truthy.
+    refresh: z.string().optional().transform((v) => v === 'true' || v === '1'),
   })
   const parsed = schema.safeParse(req.query)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
 
-  const { weeks, endDate } = parsed.data
+  const { weeks, refresh } = parsed.data
+  let { startDate, endDate } = parsed.data
+
+  if (startDate && endDate) {
+    if (startDate > endDate) return res.status(400).json({ error: 'startDate must be on or before endDate' })
+  } else {
+    // Roll back from the newest closed week, inclusive of it.
+    endDate = endDate ? weekEndingOnOrBefore(endDate) : latestWeekEnding()
+    startDate = addDays(endDate, -7 * (weeks - 1))
+  }
+
   try {
-    const data = await fetchCommissions(prisma, { weeks, endDate: endDate || latestWeekEnding() })
-    res.json({ weeks: data })
+    const result = await getWeeks(prisma, { startDate, endDate, refresh })
+    res.json({ ...result, range: { startDate, endDate } })
   } catch (e) {
     handleLotteryError(res, e)
   }
