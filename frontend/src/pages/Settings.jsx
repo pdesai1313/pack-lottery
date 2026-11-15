@@ -112,10 +112,10 @@ function LotterySettingsPanel() {
   const testMutation = useMutation({
     mutationFn: testLotteryConnection,
     onSuccess: (data) => {
-      setTestResult({ ok: true, data })
+      setTestResult(data)
       qc.invalidateQueries({ queryKey: ['lottery-settings'] })
     },
-    onError: (e) => setTestResult({ ok: false, error: e.response?.data?.error || 'Connection failed' }),
+    onError: (e) => setTestResult({ ok: false, steps: [{ step: 'request', ok: false, error: e.response?.data?.error || 'Connection failed' }] }),
   })
 
   return (
@@ -165,18 +165,23 @@ function LotterySettingsPanel() {
         </button>
       </div>
 
-      {testResult?.ok && (
-        <div className="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
-          <p className="text-green-700 text-sm font-semibold">✓ Connected to Mass Lottery</p>
-          <p className="text-gray-500 text-xs mt-1">
-            Location {testResult.data.locationId}
-            {testResult.data.expiresAt && ` · session expires ${new Date(testResult.data.expiresAt).toLocaleString()}`}
+      {testResult && (
+        <div className={`mt-3 p-3 rounded-lg border ${testResult.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          <p className={`text-sm font-semibold ${testResult.ok ? 'text-green-700' : 'text-red-600'}`}>
+            {testResult.ok ? '✓ Connected to Mass Lottery' : '✗ Connection failed'}
           </p>
-        </div>
-      )}
-      {testResult && !testResult.ok && (
-        <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-200">
-          <p className="text-red-600 text-sm font-semibold">✗ {testResult.error}</p>
+          <div className="mt-2 space-y-1">
+            {(testResult.steps || []).map((s) => (
+              <div key={s.step} className="text-xs">
+                <span className={s.ok ? 'text-green-600' : 'text-red-600'}>{s.ok ? '✓' : '✗'}</span>
+                <span className="ml-1.5 font-medium text-gray-600">{s.step}</span>
+                {s.ok && s.locationId && <span className="text-gray-400"> — location {s.locationId}, cookies: {s.cookies?.join(', ')}</span>}
+                {s.ok && s.weeksReturned != null && <span className="text-gray-400"> — {s.weeksReturned} weeks for {s.endDate}</span>}
+                {!s.ok && <span className="text-gray-500"> — {s.error}</span>}
+                {!s.ok && s.detail && <pre className="text-[10px] text-gray-400 mt-0.5 whitespace-pre-wrap">{s.detail}</pre>}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

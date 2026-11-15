@@ -213,18 +213,72 @@ function parseInvoice(payload, endDate) {
   return weeks
 }
 
+function looksBlocked(text) {
+  return /incapsula|imperva|request unsuccessful|<html/i.test(text)
+}
+
 async function fetchInvoiceWeeks(session, endDate) {
   const url = `${INVOICE_URL}?endDate=${encodeURIComponent(endDate)}&locationId=${encodeURIComponent(session.locationId)}`
   const res = await portalGet(session, url, 'accounting.invoice', `${BASE}/app/accounting/invoice`)
+  const text = await res.text()
 
-  if (res.status === 401 || res.status === 403) {
-    throw new LotteryError('Lottery session expired', 401)
+  // Check the payload before the status code: Imperva answers with an HTML
+  // challenge page, often under a 403, which must not be mistaken for an
+  // expired session (a refresh would never fix it).
+  if (looksBlocked(text)) {
+    throw new LotteryError(
+      `The lottery portal blocked this request (HTTP ${res.status}, bot protection). It may not allow access from the server's IP.`,
+      502,
+      text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
+    )
   }
-  const body = await readJson(res, 'Invoice')
+
+  let body
+  try {
+    body = JSON.parse(text)
+  } catch {
+    throw new LotteryError(`Invoice: portal returned a non-JSON response (HTTP ${res.status})`, 502, text.slice(0, 200))
+  }
+
+  // Only a JSON 401/403 is a genuine session problem worth retrying.
+  if (res.status === 401 || res.status === 403) {
+    throw new LotteryError(body?.httpResponse?.description || `Lottery session rejected (HTTP ${res.status})`, 401)
+  }
   if (!res.ok) {
     throw new LotteryError(body?.httpResponse?.description || `Invoice request failed (HTTP ${res.status})`, 502)
   }
   return parseInvoice(body, endDate)
+}
+
+// Runs the whole chain once and reports what happened at each step, so a
+// failure in production can be attributed without guesswork.
+async function diagnose(prisma) {
+  const steps = []
+  let session
+  try {
+    session = await getSession(prisma, { forceRefresh: true })
+    steps.push({
+      step: 'login',
+      ok: true,
+      locationId: session.locationId,
+      expiresAt: session.expiresAt,
+      // Names only — cookie values are session credentials.
+      cookies: session.cookie.split('; ').map((c) => c.split('=')[0]),
+    })
+  } catch (e) {
+    steps.push({ step: 'login', ok: false, error: e.message, detail: e.detail })
+    return { ok: false, steps }
+  }
+
+  const endDate = latestWeekEnding()
+  try {
+    const weeks = await fetchInvoiceWeeks(session, endDate)
+    steps.push({ step: 'invoice', ok: true, endDate, weeksReturned: weeks.length })
+    return { ok: true, steps }
+  } catch (e) {
+    steps.push({ step: 'invoice', ok: false, endDate, error: e.message, detail: e.detail })
+    return { ok: false, steps }
+  }
 }
 
 // Walks backwards from the latest completed week, four weeks per request.
@@ -258,6 +312,7 @@ async function fetchCommissions(prisma, { weeks = 12, endDate = latestWeekEnding
 module.exports = {
   login,
   getSession,
+  diagnose,
   fetchCommissions,
   fetchInvoiceWeeks,
   parseInvoice,

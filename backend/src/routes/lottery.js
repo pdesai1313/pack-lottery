@@ -3,7 +3,7 @@ const { z } = require('zod')
 const { PrismaClient } = require('@prisma/client')
 const { verifyAccessToken, requireRole } = require('../middleware/auth')
 const { encrypt } = require('../lib/crypto')
-const { getSession, fetchCommissions, latestWeekEnding, LotteryError } = require('../lib/lottery')
+const { diagnose, fetchCommissions, latestWeekEnding, LotteryError } = require('../lib/lottery')
 const { audit } = require('../lib/audit')
 
 const router = express.Router()
@@ -71,13 +71,11 @@ router.post('/test', verifyAccessToken, requireRole('ADMIN'), async (req, res) =
     return res.status(400).json({ error: 'Save a Mass Lottery username and password first.' })
   }
 
-  try {
-    const session = await getSession(prisma, { forceRefresh: true })
-    await audit(prisma, req.user.id, 'UPDATE', 'SETTINGS', 1, 'Tested Mass Lottery connection (success)')
-    res.json({ ok: true, locationId: session.locationId, expiresAt: session.expiresAt })
-  } catch (e) {
-    handleLotteryError(res, e)
-  }
+  // Always 200: the body reports which step failed, which is more useful than
+  // collapsing a login problem and a blocked request into one status code.
+  const result = await diagnose(prisma)
+  await audit(prisma, req.user.id, 'UPDATE', 'SETTINGS', 1, `Tested Mass Lottery connection (${result.ok ? 'success' : 'failed'})`)
+  res.json(result)
 })
 
 router.get('/commissions', verifyAccessToken, requireRole(['ADMIN', 'REVIEWER']), async (req, res) => {
