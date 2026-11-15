@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSettings, updateSettings } from '../api/settings'
 import { getUsers, createUser, updateUser } from '../api/users'
+import { getLotterySettings, updateLotterySettings, testLotteryConnection } from '../api/lottery'
 
 function SettingsPanel() {
   const qc = useQueryClient()
@@ -82,6 +83,107 @@ function PosSettingsPanel() {
       <button className="btn-primary btn-sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
         {saved ? '✓ Saved' : 'Save'}
       </button>
+    </div>
+  )
+}
+
+function LotterySettingsPanel() {
+  const qc = useQueryClient()
+  const { data: settings } = useQuery({ queryKey: ['lottery-settings'], queryFn: getLotterySettings })
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [testResult, setTestResult] = useState(null)
+
+  useEffect(() => { if (settings) setUsername(settings.username || '') }, [settings])
+
+  const saveMutation = useMutation({
+    // Blank password means "keep the one already stored".
+    mutationFn: () => updateLotterySettings(password ? { username, password } : { username }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lottery-settings'] })
+      setPassword('')
+      setTestResult(null)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    },
+  })
+
+  const testMutation = useMutation({
+    mutationFn: testLotteryConnection,
+    onSuccess: (data) => {
+      setTestResult({ ok: true, data })
+      qc.invalidateQueries({ queryKey: ['lottery-settings'] })
+    },
+    onError: (e) => setTestResult({ ok: false, error: e.response?.data?.error || 'Connection failed' }),
+  })
+
+  return (
+    <div className="card mb-6">
+      <h3 className="font-medium mb-3">Mass Lottery Portal</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className="label">Username</label>
+          <input
+            className="input"
+            type="text"
+            autoComplete="off"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">Password</label>
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            placeholder={settings?.hasPassword ? '•••••••• (saved)' : 'Enter password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <p className="text-gray-400 text-xs mt-1">
+            {settings?.hasPassword ? 'Leave blank to keep the saved password.' : 'Stored encrypted; used to refresh the portal token.'}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          className="btn-primary btn-sm"
+          onClick={() => saveMutation.mutate()}
+          disabled={!username.trim() || saveMutation.isPending}
+        >
+          {saved ? '✓ Saved' : 'Save'}
+        </button>
+        <button
+          className="btn-secondary btn-sm"
+          onClick={() => { setTestResult(null); testMutation.mutate() }}
+          disabled={!settings?.hasPassword || testMutation.isPending}
+        >
+          {testMutation.isPending ? 'Testing…' : 'Test Connection'}
+        </button>
+      </div>
+
+      {testResult?.ok && (
+        <div className="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
+          <p className="text-green-700 text-sm font-semibold">✓ Connected to Mass Lottery</p>
+          <p className="text-gray-500 text-xs mt-1">
+            Token {testResult.data.tokenFound ? 'received' : 'not found in body'}
+            {testResult.data.cookieCount > 0 && ` · ${testResult.data.cookieCount} session cookie(s)`}
+            {testResult.data.tokenExpiration && ` · expires ${testResult.data.tokenExpiration}`}
+          </p>
+          <details className="mt-2">
+            <summary className="text-gray-400 text-xs cursor-pointer">Response field names</summary>
+            <pre className="text-[10px] text-gray-500 mt-1 overflow-x-auto">{JSON.stringify(testResult.data.shape, null, 2)}</pre>
+          </details>
+        </div>
+      )}
+      {testResult && !testResult.ok && (
+        <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-200">
+          <p className="text-red-600 text-sm font-semibold">✗ {testResult.error}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -167,6 +269,7 @@ export default function Settings() {
       <h2 className="text-lg font-semibold mb-4">Settings &amp; Users</h2>
       <SettingsPanel />
       <PosSettingsPanel />
+      <LotterySettingsPanel />
       <UsersPanel />
     </div>
   )
