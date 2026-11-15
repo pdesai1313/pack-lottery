@@ -10,6 +10,7 @@ const NAV = [
   { label: 'Reports', to: '/reports', roles: ['ADMIN', 'REVIEWER'] },
   { label: 'Grocery', to: '/grocery', roles: ['ADMIN', 'REVIEWER', 'OPERATOR'] },
   { label: 'POS',      to: '/pos',      roles: ['ADMIN'] },
+  { label: 'Commission', to: '/lottery', roles: ['ADMIN', 'REVIEWER'] },
   { label: 'Audit',    to: '/audit',    roles: ['ADMIN'] },
   { label: 'Settings', to: '/settings', roles: ['ADMIN'] },
 ]

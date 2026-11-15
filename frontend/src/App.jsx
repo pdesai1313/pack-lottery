@@ -18,6 +18,7 @@ import Grocery from './pages/Grocery'
 import AuditLog from './pages/AuditLog'
 import Dashboard from './pages/Dashboard'
 import PosImport from './pages/PosImport'
+import LotteryCommission from './pages/LotteryCommission'
 
 function AuthRedirect() {
   const { user, isLoading } = useAuth()
@@ -46,6 +47,7 @@ export default function App() {
       <Route path="/grocery" element={<ProtectedRoute roles={['ADMIN','REVIEWER','OPERATOR']}><Layout><Grocery /></Layout></ProtectedRoute>} />
       <Route path="/audit" element={<ProtectedRoute roles={['ADMIN']}><Layout><AuditLog /></Layout></ProtectedRoute>} />
       <Route path="/pos" element={<ProtectedRoute roles={['ADMIN']}><Layout><PosImport /></Layout></ProtectedRoute>} />
+      <Route path="/lottery" element={<ProtectedRoute roles={['ADMIN','REVIEWER']}><Layout><LotteryCommission /></Layout></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

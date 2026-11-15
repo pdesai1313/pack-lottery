@@ -169,14 +169,9 @@ function LotterySettingsPanel() {
         <div className="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
           <p className="text-green-700 text-sm font-semibold">✓ Connected to Mass Lottery</p>
           <p className="text-gray-500 text-xs mt-1">
-            Token {testResult.data.tokenFound ? 'received' : 'not found in body'}
-            {testResult.data.cookieCount > 0 && ` · ${testResult.data.cookieCount} session cookie(s)`}
-            {testResult.data.tokenExpiration && ` · expires ${testResult.data.tokenExpiration}`}
+            Location {testResult.data.locationId}
+            {testResult.data.expiresAt && ` · session expires ${new Date(testResult.data.expiresAt).toLocaleString()}`}
           </p>
-          <details className="mt-2">
-            <summary className="text-gray-400 text-xs cursor-pointer">Response field names</summary>
-            <pre className="text-[10px] text-gray-500 mt-1 overflow-x-auto">{JSON.stringify(testResult.data.shape, null, 2)}</pre>
-          </details>
         </div>
       )}
       {testResult && !testResult.ok && (
