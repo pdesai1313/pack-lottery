@@ -56,9 +56,9 @@ export default function WeekDetail({ row, colSpan }) {
   return (
     <tr className="bg-gray-50/70">
       <td colSpan={colSpan} className="p-0">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 px-4 py-3 border-y border-gray-200">
+        <div className="px-4 py-3 border-y border-gray-200 space-y-3">
 
-          <div className="lg:col-span-7">
+          <div>
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
               Agent Information — week ending {row.weekEnding}
             </p>
@@ -67,12 +67,16 @@ export default function WeekDetail({ row, colSpan }) {
             </div>
           </div>
 
-          <div className="lg:col-span-5 space-y-3">
+          {/* Beneath the summary, not beside it: the derived figures are read
+              first, and the raw portal rows back them up underneath. */}
+          <div>
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
               Portal line items
             </p>
-            <LineItems title="Online Lottery" accent="text-blue-600" items={ONLINE_ITEMS} row={row} />
-            <LineItems title="Instant Tickets" accent="text-green-700" items={INSTANT_ITEMS} row={row} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <LineItems title="Online Lottery" accent="text-blue-600" items={ONLINE_ITEMS} row={row} />
+              <LineItems title="Instant Tickets" accent="text-green-700" items={INSTANT_ITEMS} row={row} />
+            </div>
           </div>
 
         </div>

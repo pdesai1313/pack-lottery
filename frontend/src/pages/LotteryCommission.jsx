@@ -9,7 +9,6 @@ import {
 import KpiStrip from '../components/commission/KpiStrip'
 import CommissionToolbar from '../components/commission/CommissionToolbar'
 import WeekDetail from '../components/commission/WeekDetail'
-import AgentTable from '../components/commission/AgentTable'
 
 const PAGE_SIZES = [5, 12, 26, 52]
 
@@ -426,39 +425,7 @@ export default function LotteryCommission() {
               </div>
             )}
           </div>
-
-          <PeriodSummary totals={totals} rows={filtered} />
         </>
-      )}
-    </div>
-  )
-}
-
-function PeriodSummary({ totals, rows }) {
-  const [open, setOpen] = useState(true)
-  if (rows.length === 0) return null
-
-  const newest = rows[0].weekEnding
-  const oldest = rows[rows.length - 1].weekEnding
-  const span = rows.length === 1 ? `week ending ${newest}` : `${rows.length} weeks · ${oldest} → ${newest}`
-
-  return (
-    <div className="card p-0 mt-4 shadow-sm overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-      >
-        <span className="flex items-baseline gap-2">
-          <span className="font-semibold text-sm text-gray-800">Agent Information — Period Summary</span>
-          <span className="text-xs text-gray-400">{span}</span>
-        </span>
-        <span className={`text-gray-400 text-xs transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
-      </button>
-      {open && (
-        <div className="border-t border-gray-100 overflow-x-auto">
-          <AgentTable totals={totals} />
-        </div>
       )}
     </div>
   )
