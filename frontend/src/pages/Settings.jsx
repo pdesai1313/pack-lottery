@@ -179,6 +179,7 @@ function LotterySettingsPanel() {
                 {s.ok && s.locationId && <span className="text-gray-400"> — location {s.locationId}, cookies: {s.cookies?.join(', ')}</span>}
                 {s.ok && s.weeksReturned != null && <span className="text-gray-400"> — {s.weeksReturned} weeks for {s.endDate}</span>}
                 {!s.ok && <span className="text-gray-500"> — {s.error}</span>}
+                {s.primedCookies?.length > 0 && <span className="text-gray-400"> (sent: {s.primedCookies.join(', ')})</span>}
                 {!s.ok && s.detail && <pre className="text-[10px] text-gray-400 mt-0.5 whitespace-pre-wrap">{s.detail}</pre>}
               </div>
             ))}

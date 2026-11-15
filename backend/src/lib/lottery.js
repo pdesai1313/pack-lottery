@@ -1,3 +1,4 @@
+const crypto = require('crypto')
 const { decrypt } = require('./crypto')
 
 const BASE = 'https://gemr.masslottery.com'
@@ -12,9 +13,11 @@ const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:158.0) Gecko/20100101 Firefox/158.0',
 }
 
-// Imperva's own cookies are per-request noise; only application cookies
-// (jwt, JSESSIONID, CSRF-Token) carry the session.
-const CDN_COOKIE = /^(visid_incap_|incap_ses_|nlbi_)/i
+// Imperva's cookies (visid_incap_*, incap_ses_*) are kept alongside the
+// application's own. A browser collects them when it loads the page and
+// replays them on every API call; omitting them makes the request look
+// automated, and the portal then rejects it with "Invalid or missing CSRF
+// token" from datacenter IPs even though the same call succeeds elsewhere.
 
 class LotteryError extends Error {
   constructor(message, status, detail) {
@@ -29,7 +32,50 @@ function readSetCookies(res) {
   const raw = typeof res.headers.getSetCookie === 'function'
     ? res.headers.getSetCookie()
     : [res.headers.get('set-cookie')].filter(Boolean)
-  return raw.map((c) => String(c).split(';')[0]).filter((c) => c && !CDN_COOKIE.test(c))
+  return raw.map((c) => String(c).split(';')[0]).filter(Boolean)
+}
+
+// Later values win, so a refreshed cookie replaces the one it supersedes.
+function mergeCookies(jar, setCookies) {
+  const map = new Map()
+  for (const pair of String(jar || '').split('; ').filter(Boolean)) {
+    const i = pair.indexOf('=')
+    if (i > 0) map.set(pair.slice(0, i).trim(), pair.slice(i + 1))
+  }
+  for (const pair of setCookies) {
+    const i = pair.indexOf('=')
+    if (i > 0) map.set(pair.slice(0, i).trim(), pair.slice(i + 1))
+  }
+  return [...map].map(([k, v]) => `${k}=${v}`).join('; ')
+}
+
+// Loads the login page the way a browser would, to pick up the bot-protection
+// cookies that later API calls are expected to carry, and mints the CSRF
+// token alongside them.
+//
+// The portal never issues a CSRF token itself — no response sets one, and the
+// value the browser sends is only 8 hex characters. Its single-page app
+// generates the token client-side and submits it twice, as both the
+// CSRF-Token cookie and the X-XSRF-TOKEN header; the server just checks that
+// the two agree. Generating one here is what the real client does.
+async function primeCookies() {
+  const csrfToken = crypto.randomBytes(4).toString('hex')
+  let jar = `CSRF-Token=${csrfToken}`
+  try {
+    const res = await fetch(`${BASE}/app/login`, {
+      headers: {
+        ...BROWSER_HEADERS,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Cookie': jar,
+      },
+      signal: AbortSignal.timeout(20000),
+    })
+    await res.arrayBuffer()
+    jar = mergeCookies(jar, readSetCookies(res))
+  } catch {
+    // Priming is best-effort; the login attempt still reports the real failure.
+  }
+  return jar
 }
 
 function cookieValue(cookieString, name) {
@@ -67,11 +113,21 @@ async function readJson(res, context) {
 async function login(username, password) {
   if (!username || !password) throw new LotteryError('Lottery username and password are not configured', 400)
 
+  const primed = await primeCookies()
+  const csrf = cookieValue(primed, 'CSRF-Token')
+
   let res
   try {
     res = await fetch(AUTH_URL, {
       method: 'POST',
-      headers: { ...BROWSER_HEADERS, 'Content-Type': 'application/json', 'Origin': BASE, 'Referer': `${BASE}/app/login` },
+      headers: {
+        ...BROWSER_HEADERS,
+        'Content-Type': 'application/json',
+        'Origin': BASE,
+        'Referer': `${BASE}/app/login`,
+        ...(primed ? { 'Cookie': primed } : {}),
+        ...(csrf ? { 'X-XSRF-TOKEN': csrf } : {}),
+      },
       body: JSON.stringify({ username, password }),
       signal: AbortSignal.timeout(30000),
     })
@@ -86,7 +142,7 @@ async function login(username, password) {
     throw new LotteryError(body?.httpResponse?.description || `Lottery login failed (HTTP ${res.status})`, 401)
   }
 
-  const cookie = readSetCookies(res).join('; ')
+  const cookie = mergeCookies(primed, readSetCookies(res))
   const jwt = cookieValue(cookie, 'jwt')
   if (!jwt) {
     throw new LotteryError('Logged in, but the portal did not return a session cookie.', 502, `cookies: ${cookie || '(none)'}`)
@@ -256,11 +312,21 @@ async function fetchInvoiceWeeks(session, endDate) {
 // application. This distinguishes "this server is blocked" from "these
 // credentials are wrong" without using real credentials.
 async function probeReachability() {
+  const primed = await primeCookies()
+  const csrf = cookieValue(primed, 'CSRF-Token')
+
   let res, text
   try {
     res = await fetch(AUTH_URL, {
       method: 'POST',
-      headers: { ...BROWSER_HEADERS, 'Content-Type': 'application/json', 'Origin': BASE, 'Referer': `${BASE}/app/login` },
+      headers: {
+        ...BROWSER_HEADERS,
+        'Content-Type': 'application/json',
+        'Origin': BASE,
+        'Referer': `${BASE}/app/login`,
+        ...(primed ? { 'Cookie': primed } : {}),
+        ...(csrf ? { 'X-XSRF-TOKEN': csrf } : {}),
+      },
       body: JSON.stringify({ username: '__reachability_probe__', password: '__reachability_probe__' }),
       signal: AbortSignal.timeout(20000),
     })
@@ -268,6 +334,8 @@ async function probeReachability() {
   } catch (e) {
     return { ok: false, error: `Could not reach the portal: ${e.message}` }
   }
+
+  const primedNames = primed ? primed.split('; ').map((c) => c.split('=')[0]) : []
 
   if (looksBlocked(text)) {
     return {
@@ -280,10 +348,10 @@ async function probeReachability() {
 
   try {
     const body = JSON.parse(text)
-    if (body?.httpResponse) return { ok: true, status: res.status, reachedApp: true }
-    return { ok: false, status: res.status, error: 'Unexpected JSON from the portal', detail: text.slice(0, 200) }
+    if (body?.httpResponse) return { ok: true, status: res.status, reachedApp: true, primedCookies: primedNames }
+    return { ok: false, status: res.status, error: body?.error || 'Unexpected JSON from the portal', detail: text.slice(0, 200), primedCookies: primedNames }
   } catch {
-    return { ok: false, status: res.status, error: `Non-JSON response (HTTP ${res.status})`, detail: text.slice(0, 200) }
+    return { ok: false, status: res.status, error: `Non-JSON response (HTTP ${res.status})`, detail: text.slice(0, 200), primedCookies: primedNames }
   }
 }
 
