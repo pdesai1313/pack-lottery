@@ -13,8 +13,6 @@ import Exceptions from './pages/Exceptions'
 import PackManagement from './pages/PackManagement'
 import Settings from './pages/Settings'
 import Reports from './pages/Reports'
-import Users from './pages/Users'
-import Grocery from './pages/Grocery'
 import AuditLog from './pages/AuditLog'
 import Dashboard from './pages/Dashboard'
 import PosImport from './pages/PosImport'
@@ -43,11 +41,12 @@ export default function App() {
       <Route path="/packs" element={<ProtectedRoute roles={['ADMIN']}><Layout><PackManagement /></Layout></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute roles={['ADMIN']}><Layout><Settings /></Layout></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute roles={['ADMIN','REVIEWER']}><Layout><Reports /></Layout></ProtectedRoute>} />
-      <Route path="/users" element={<ProtectedRoute roles={['ADMIN']}><Layout><Users /></Layout></ProtectedRoute>} />
-      <Route path="/grocery" element={<ProtectedRoute roles={['ADMIN','REVIEWER','OPERATOR']}><Layout><Grocery /></Layout></ProtectedRoute>} />
       <Route path="/audit" element={<ProtectedRoute roles={['ADMIN']}><Layout><AuditLog /></Layout></ProtectedRoute>} />
       <Route path="/pos" element={<ProtectedRoute roles={['ADMIN']}><Layout><PosImport /></Layout></ProtectedRoute>} />
       <Route path="/lottery" element={<ProtectedRoute roles={['ADMIN','REVIEWER']}><Layout><LotteryCommission /></Layout></ProtectedRoute>} />
+
+      {/* User management moved into Settings; keep old links working. */}
+      <Route path="/users" element={<Navigate to="/settings" replace />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

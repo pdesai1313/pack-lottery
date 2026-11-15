@@ -30,6 +30,8 @@ const ACTION_STYLE = {
   COMMIT: 'bg-purple-100 text-purple-700',
 }
 
+// Grocery was retired in favour of POS. Its label and filter stay so the
+// entries already in the audit trail remain readable and searchable.
 const ENTITY_LABEL = {
   SHIFT:   'Shift',
   PACK:    'Pack',

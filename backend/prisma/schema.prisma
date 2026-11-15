@@ -173,6 +173,10 @@ model LotteryWeek {
   @@map("lottery_weeks")
 }
 
+// RETIRED — the Grocery feature was replaced by the POS import. Its UI and
+// API were removed, but the model is kept so the historical rows (and the
+// audit entries that reference them) survive. Deleting it here would drop
+// the table on the next `prisma db push`.
 model GroceryEntry {
   id               Int      @id @default(autoincrement())
   date             String

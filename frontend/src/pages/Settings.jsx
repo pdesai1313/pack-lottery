@@ -190,55 +190,109 @@ function LotterySettingsPanel() {
   )
 }
 
+const ROLES = ['ADMIN', 'REVIEWER', 'OPERATOR']
+
+// Create and edit share a dialog because they differ in only two ways: email
+// is fixed once set, and an existing user's password is only overwritten when
+// a new one is typed.
+function UserModal({ initial, onClose }) {
+  const qc = useQueryClient()
+  const isEdit = Boolean(initial)
+  const [form, setForm] = useState(
+    initial
+      ? { name: initial.name, role: initial.role, password: '', active: initial.active }
+      : { name: '', email: '', password: '', role: 'OPERATOR' }
+  )
+  const [error, setError] = useState('')
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const mutation = useMutation({
+    mutationFn: (data) => (isEdit ? updateUser(initial.id, data) : createUser(data)),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); onClose() },
+    onError: (e) => setError(e.response?.data?.error || 'Failed to save'),
+  })
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    const data = { ...form }
+    if (isEdit && !data.password) delete data.password
+    mutation.mutate(data)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900">{isEdit ? `Edit ${initial.name}` : 'Add User'}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-3">
+          <div>
+            <label className="label">Name *</label>
+            <input className="input" value={form.name} onChange={set('name')} required />
+          </div>
+          {!isEdit && (
+            <div>
+              <label className="label">Email *</label>
+              <input className="input" type="email" value={form.email} onChange={set('email')} required />
+            </div>
+          )}
+          <div>
+            <label className="label">{isEdit ? 'New Password (leave blank to keep)' : 'Password *'}</label>
+            <input
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              value={form.password}
+              onChange={set('password')}
+              required={!isEdit}
+              minLength={6}
+            />
+          </div>
+          <div>
+            <label className="label">Role *</label>
+            <select className="input" value={form.role} onChange={set('role')}>
+              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          {isEdit && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
+              <span className="text-sm text-gray-700">Active</span>
+            </label>
+          )}
+          {error && <p className="text-red-600 text-xs">{error}</p>}
+          <div className="flex gap-2 pt-1">
+            <button type="submit" className="btn-primary btn-sm" disabled={mutation.isPending}>
+              {mutation.isPending ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" className="btn-secondary btn-sm" onClick={onClose}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function UsersPanel() {
   const qc = useQueryClient()
   const { data: users = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: getUsers })
-  const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'OPERATOR' })
-  const [formError, setFormError] = useState('')
-
-  const createMutation = useMutation({
-    mutationFn: () => createUser(form),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); setShowCreate(false); setForm({ name: '', email: '', password: '', role: 'OPERATOR' }) },
-    onError: (e) => setFormError(e.response?.data?.error || 'Failed'),
-  })
+  // null = closed, 'create' = new user, otherwise the user being edited.
+  const [modal, setModal] = useState(null)
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, active }) => updateUser(id, { active }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   })
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
-
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-medium">Users</h3>
-        <button className="btn-primary btn-sm" onClick={() => { setShowCreate(true); setFormError('') }}>+ Add User</button>
+        <button className="btn-primary btn-sm" onClick={() => setModal('create')}>+ Add User</button>
       </div>
 
-      {showCreate && (
-        <div className="bg-gray-50 rounded-lg p-3 mb-3">
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <div><label className="label">Name</label><input className="input" value={form.name} onChange={set('name')} /></div>
-            <div><label className="label">Email</label><input className="input" type="email" value={form.email} onChange={set('email')} /></div>
-            <div><label className="label">Password</label><input className="input" type="password" value={form.password} onChange={set('password')} /></div>
-            <div>
-              <label className="label">Role</label>
-              <select className="input" value={form.role} onChange={set('role')}>
-                <option value="OPERATOR">Operator</option>
-                <option value="REVIEWER">Reviewer</option>
-                <option value="ADMIN">Admin</option>
-              </select>
-            </div>
-          </div>
-          {formError && <p className="text-red-600 text-xs mb-2">{formError}</p>}
-          <div className="flex gap-2">
-            <button className="btn-primary btn-sm" onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>Create</button>
-            <button className="btn-secondary btn-sm" onClick={() => setShowCreate(false)}>Cancel</button>
-          </div>
-        </div>
-      )}
+      {modal && <UserModal initial={modal === 'create' ? null : modal} onClose={() => setModal(null)} />}
 
       {isLoading ? <p className="text-gray-400 text-xs">Loading…</p> : (
         <div className="divide-y divide-gray-50">
@@ -250,6 +304,7 @@ function UsersPanel() {
               </div>
               <div className="flex items-center gap-2">
                 <span className={`badge ${u.role === 'ADMIN' ? 'badge-red' : u.role === 'REVIEWER' ? 'badge-blue' : 'badge-green'}`}>{u.role}</span>
+                <button className="btn-secondary btn-sm" onClick={() => setModal(u)}>Edit</button>
                 <button
                   className={`btn-sm ${u.active ? 'btn-secondary' : 'btn-primary'}`}
                   onClick={() => toggleMutation.mutate({ id: u.id, active: !u.active })}

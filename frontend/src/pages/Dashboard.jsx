@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getShifts } from '../api/shifts'
 import { getReport } from '../api/reports'
-import { getGroceryEntries } from '../api/grocery'
 import { getAuditLogs } from '../api/audit'
 
 function today() { return new Date().toISOString().split('T')[0] }
@@ -33,6 +32,7 @@ const ACTION_COLOR = {
 const ENTITY_DOT = {
   SHIFT:   'bg-blue-400',
   PACK:    'bg-amber-400',
+  // Grocery was retired in favour of POS, but its audit history remains.
   GROCERY: 'bg-emerald-400',
   USER:    'bg-gray-400',
 }
@@ -69,11 +69,6 @@ export default function Dashboard() {
     queryFn: () => getReport(t, t),
   })
 
-  const { data: grocery = [] } = useQuery({
-    queryKey: ['grocery', t, t],
-    queryFn: () => getGroceryEntries(t, t),
-  })
-
   const { data: auditLogs = [] } = useQuery({
     queryKey: ['audit', { limit: 10 }],
     queryFn: () => getAuditLogs({ limit: 10 }),
@@ -84,8 +79,6 @@ export default function Dashboard() {
   const closedToday = shifts.filter((s) => s.status === 'CLOSED' && s.date === t)
 
   const todayLottery = report?.summary?.instantSale ?? null
-  const todayGrocery = grocery.reduce((sum, e) => sum + (e.creditDebit ?? 0) + (e.ebt ?? 0) + (e.cashSales ?? 0), 0)
-  const groceryHasData = grocery.length > 0
 
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
@@ -107,7 +100,7 @@ export default function Dashboard() {
       </div>
 
       {/* ── KPI row ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <KPICard
           label="Open Shifts"
           value={shiftsLoading ? '…' : openShifts.length}
@@ -119,11 +112,6 @@ export default function Dashboard() {
           label="Today's Lottery"
           value={todayLottery != null ? fmt(todayLottery) : '—'}
           sub={report?.summary ? `${report.summary.totalUnits} units · ${report.summary.shiftsCount} shift${report.summary.shiftsCount !== 1 ? 's' : ''}` : 'No data yet'}
-        />
-        <KPICard
-          label="Today's Grocery"
-          value={groceryHasData ? fmt(todayGrocery) : '—'}
-          sub={groceryHasData ? `${grocery.length} entr${grocery.length !== 1 ? 'ies' : 'y'}` : 'No entries today'}
         />
         <KPICard
           label="Closed Today"
@@ -143,12 +131,6 @@ export default function Dashboard() {
             >
               + New Shift
             </button>
-            <button
-              className="btn-secondary btn-sm"
-              onClick={() => navigate('/grocery')}
-            >
-              + Grocery Entry
-            </button>
             {canViewReports && (
               <button
                 className="btn-secondary btn-sm"
@@ -162,7 +144,7 @@ export default function Dashboard() {
       )}
 
       {/* ── Two-column bottom ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className={`grid grid-cols-1 gap-5 ${user?.role === 'ADMIN' ? 'lg:grid-cols-2' : ''}`}>
 
         {/* Open shifts */}
         <div className="card p-0">
@@ -198,8 +180,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Recent activity (ADMIN) or Today's grocery summary */}
-        {user?.role === 'ADMIN' ? (
+        {/* Recent activity — admins only; everyone else gets Open Shifts full width. */}
+        {user?.role === 'ADMIN' && (
           <div className="card p-0">
             <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
               <p className="text-sm font-semibold">Recent Activity</p>
@@ -228,36 +210,6 @@ export default function Dashboard() {
                   </span>
                 </div>
               ))}
-            </div>
-          </div>
-        ) : (
-          <div className="card p-0">
-            <div className="px-5 py-3.5 border-b border-gray-100">
-              <p className="text-sm font-semibold">Today's Grocery Entries</p>
-            </div>
-            <div className="divide-y divide-gray-50">
-              {grocery.length === 0 && (
-                <p className="px-5 py-6 text-sm text-gray-400 text-center">No grocery entries today.</p>
-              )}
-              {grocery.map((e) => {
-                const total = e.creditDebit + e.ebt + e.cashSales
-                const exp = e.openingCash + e.cashSales
-                const diff = e.actualCashOnHand - exp
-                return (
-                  <div key={e.id} className="px-5 py-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold">{e.storeName || 'Entry'}</p>
-                      <p className="text-xs text-gray-400">{e.preparedBy?.name}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold">{fmt(total)}</p>
-                      <p className={`text-xs font-semibold ${diff >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                        {diff >= 0 ? '+' : ''}{fmt(diff)}
-                      </p>
-                    </div>
-                  </div>
-                )
-              })}
             </div>
           </div>
         )}
